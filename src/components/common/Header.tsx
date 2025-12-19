@@ -2,6 +2,8 @@
 
 import Image from "next/image";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { logout } from "@/lib/api/auth";
 
 type Locale = "en" | "ar";
 
@@ -15,16 +17,24 @@ type HeaderProps = {
     resources: string;
     language: string;
   };
+  showLogout?: boolean;
 };
 
 export default function Header({
   locale,
   onToggleLocale,
   labels,
+  showLogout = false,
 }: HeaderProps) {
+  const router = useRouter();
   const altLocale: Locale = locale === "en" ? "ar" : "en";
   const flagSrc = altLocale === "en" ? "/en.svg" : "/ar.svg";
   const altLabel = altLocale === "en" ? "English" : "Arabic";
+
+  const handleLogout = async () => {
+    await logout();
+    router.push("/login");
+  };
 
   return (
     <header className="site-header">
@@ -45,19 +55,31 @@ export default function Header({
           <Link href="/#resources">{labels.resources}</Link>
         </nav>
       </div>
-      <button
-        type="button"
-        className="lang-toggle header-lang"
-        aria-label={`Switch to ${altLocale === "en" ? "English" : "Arabic"}`}
-        onClick={() => onToggleLocale?.(altLocale)}
-      >
-        <span className="lang-text">
-          {altLabel === "English" ? "English" : "العربية"}
-        </span>
-        <span className="lang-flag">
-          <Image src={flagSrc} alt={altLabel} width={24} height={16} />
-        </span>
-      </button>
+      <div style={{ display: "flex", alignItems: "center", gap: "1rem" }}>
+        {showLogout && (
+          <button
+            type="button"
+            onClick={handleLogout}
+            className="lang-toggle"
+            style={{ marginRight: 0 }}
+          >
+            Logout
+          </button>
+        )}
+        <button
+          type="button"
+          className="lang-toggle header-lang"
+          aria-label={`Switch to ${altLocale === "en" ? "English" : "Arabic"}`}
+          onClick={() => onToggleLocale?.(altLocale)}
+        >
+          <span className="lang-text">
+            {altLabel === "English" ? "English" : "العربية"}
+          </span>
+          <span className="lang-flag">
+            <Image src={flagSrc} alt={altLabel} width={24} height={16} />
+          </span>
+        </button>
+      </div>
     </header>
   );
 }
