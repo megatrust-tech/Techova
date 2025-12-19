@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Inter } from "next/font/google";
 import "./globals.css";
+import ProtectedRoute from "@/components/common/ProtectedRoute";
 
 const inter = Inter({
   subsets: ["latin"],
@@ -20,8 +21,9 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en">
-      <body className={inter.variable}>{children}</body>
+      <body className={inter.variable}>
+        <ProtectedRoute>{children}</ProtectedRoute>
+      </body>
     </html>
   );
 }
-

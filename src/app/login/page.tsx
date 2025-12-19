@@ -2,9 +2,11 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import ar from "@/locales/ar.json";
 import en from "@/locales/en.json";
 import Header from "@/components/common/Header";
+import { login, isAuthenticated } from "@/lib/api/auth";
 
 type Locale = "en" | "ar";
 
@@ -12,12 +14,43 @@ const translations: Record<Locale, typeof en> = { en, ar };
 
 export default function LoginPage() {
   const [locale, setLocale] = useState<Locale>("en");
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const router = useRouter();
   const t = useMemo(() => translations[locale], [locale]);
 
   useEffect(() => {
     document.documentElement.lang = locale;
     document.documentElement.dir = locale === "ar" ? "rtl" : "ltr";
   }, [locale]);
+
+  useEffect(() => {
+    // If already authenticated, redirect to home
+    if (isAuthenticated()) {
+      router.push("/");
+    }
+  }, [router]);
+
+  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    setError(null);
+    setIsLoading(true);
+
+    const formData = new FormData(e.currentTarget);
+    const email = formData.get("email") as string;
+    const password = formData.get("password") as string;
+
+    try {
+      await login({ email, password });
+      router.push("/");
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : "Login failed. Please try again."
+      );
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   return (
     <>
@@ -48,7 +81,16 @@ export default function LoginPage() {
           <h1>{t.title}</h1>
           <p>{t.subtitle}</p>
 
-          <form className="form">
+          <form className="form" onSubmit={handleSubmit}>
+            {error && (
+              <div
+                className="error-message"
+                style={{ color: "red", marginBottom: "1rem" }}
+              >
+                {error}
+              </div>
+            )}
+
             <div className="input-group">
               <label htmlFor="email">{t.email}</label>
               <input
@@ -58,6 +100,8 @@ export default function LoginPage() {
                 className="input"
                 placeholder="name@company.com"
                 autoComplete="email"
+                required
+                disabled={isLoading}
               />
             </div>
 
@@ -70,6 +114,8 @@ export default function LoginPage() {
                 className="input"
                 placeholder="••••••••"
                 autoComplete="current-password"
+                required
+                disabled={isLoading}
               />
             </div>
 
@@ -83,8 +129,8 @@ export default function LoginPage() {
               </a>
             </div>
 
-            <button type="submit" className="primary-btn">
-              {t.login}
+            <button type="submit" className="primary-btn" disabled={isLoading}>
+              {isLoading ? "Logging in..." : t.login}
             </button>
           </form>
 
