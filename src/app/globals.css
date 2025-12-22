@@ -166,7 +166,7 @@ a {
 }
 
 .link {
-  color: var(--brand-accent);
+  color: var(--brand-primary);
   font-weight: 600;
   font-size: 14px;
 }
@@ -174,13 +174,14 @@ a {
 .primary-btn {
   width: 100%;
   padding: 14px 16px;
-  border: none;
+  border: 2px solid transparent;
   border-radius: 14px;
+  background-clip: padding-box;
   background: linear-gradient(
     135deg,
     #8a6dd1 0%,
-    #7b58ca 20%,
-    var(--brand-accent) 100%
+    #7b58ca 100%
+    /* var(--brand-accent) 100% */
   );
   color: white;
   font-weight: 700;
@@ -190,8 +191,10 @@ a {
 }
 
 .primary-btn:hover {
-  transform: translateY(-1px);
-  box-shadow: 0 15px 25px rgba(15, 123, 220, 0.25);
+  background: white;
+  color: #7b58ca;
+  border-color: #7b58ca;
+  border: 2px solid #7b58ca;
 }
 
 .primary-btn:active {

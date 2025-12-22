@@ -279,6 +279,12 @@ export default function LeaveRequestPage() {
   };
 
   const filteredRequests = useMemo(() => {
+    // FIX: Add safety check to ensure myLeaves is an array
+    if (!Array.isArray(myLeaves)) {
+      console.warn("myLeaves is not an array:", myLeaves);
+      return [];
+    }
+
     if (selectedStatusFilter === "all") {
       return myLeaves;
     }
@@ -439,7 +445,7 @@ export default function LeaveRequestPage() {
                     e.currentTarget.style.background = "transparent";
                   }}
                 >
-                  Detailed
+                  Details
                 </button>
               </>
             )}
@@ -447,24 +453,12 @@ export default function LeaveRequestPage() {
             <button
               type="button"
               onClick={() => setModalOpen(true)}
+              className="primary-btn"
               style={{
-                width: "100%",
-                padding: "12px 24px",
-                background:
-                  "linear-gradient(135deg, var(--brand-primary) 0%, var(--brand-accent) 100%)",
-                color: "white",
-                border: "none",
-                borderRadius: "8px",
-                fontSize: "1rem",
-                fontWeight: "500",
-                cursor: "pointer",
-                transition: "opacity 0.2s",
-              }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.opacity = "0.9";
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.opacity = "1";
+                padding: "8px 16px",
+                fontSize: "0.875rem",
+                borderRadius: "6px",
+                fontWeight: 500,
               }}
             >
               {t.submitRequest}
@@ -808,7 +802,7 @@ export default function LeaveRequestPage() {
                               dateRange.start,
                               dateRange.end
                             ) >
-                            getRemainingDaysForType(selectedLeaveType as number)
+                              getRemainingDaysForType(selectedLeaveType as number)
                               ? "var(--danger)"
                               : "var(--text-muted)",
                         }}
@@ -822,12 +816,12 @@ export default function LeaveRequestPage() {
                           getRemainingDaysForType(
                             selectedLeaveType as number
                           ) && (
-                          <span
-                            style={{ display: "block", marginTop: "0.25rem" }}
-                          >
-                            ⚠️ Requested days exceed available balance
-                          </span>
-                        )}
+                            <span
+                              style={{ display: "block", marginTop: "0.25rem" }}
+                            >
+                              ⚠️ Requested days exceed available balance
+                            </span>
+                          )}
                       </div>
                     )}
                   </div>

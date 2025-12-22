@@ -360,3 +360,79 @@ export async function submitHRAction(
     throw error;
   }
 }
+
+
+export interface LeaveSettingsDto {
+  leaveTypeId: number;
+  name: string;
+  defaultBalance: number;
+  autoApproveEnabled: boolean;
+  autoApproveThresholdDays: number;
+}
+
+export async function fetchLeaveSettings(): Promise<LeaveSettingsDto[]> {
+  try {
+    const accessToken = await getAccessToken();
+    if (!accessToken) {
+      throw new Error("Not authenticated");
+    }
+
+    const response = await fetch(`${API_BASE_URL}/leaves/settings`, {
+      method: "GET",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${accessToken}`,
+      },
+    });
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      if (response.status === 401) {
+        throw new Error("Unauthorized. Please log in again.");
+      }
+      if (response.status === 403) {
+        throw new Error("Access denied. Admin permissions required.");
+      }
+      throw new Error(data.message || "Failed to fetch leave settings");
+    }
+
+    return data;
+  } catch (error) {
+    throw error;
+  }
+}
+
+export async function updateLeaveSettings(
+  settings: LeaveSettingsDto[]
+): Promise<void> {
+  try {
+    const accessToken = await getAccessToken();
+    if (!accessToken) {
+      throw new Error("Not authenticated");
+    }
+
+    const response = await fetch(`${API_BASE_URL}/leaves/settings`, {
+      method: "PUT",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${accessToken}`,
+      },
+      body: JSON.stringify(settings),
+    });
+
+    if (!response.ok) {
+      const data = await response.json().catch(() => ({})); 
+      if (response.status === 401) {
+        throw new Error("Unauthorized. Please log in again.");
+      }
+      if (response.status === 403) {
+        throw new Error("Access denied. Admin permissions required.");
+      }
+      throw new Error(data.message || "Failed to update leave settings");
+    }
+    
+  } catch (error) {
+    throw error;
+  }
+}

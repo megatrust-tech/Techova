@@ -21,6 +21,13 @@ export default function HomePage() {
     document.documentElement.dir = locale === "ar" ? "rtl" : "ltr";
   }, [locale]);
 
+  // --- Admin Redirect ---
+  useEffect(() => {
+    if (userRole === "Admin") {
+      router.push("/home/admin");
+    }
+  }, [userRole, router]);
+
   const handlePendingApproval = () => {
     if (userRole === "Manager") {
       router.push("/leaves/managerial");
@@ -28,6 +35,16 @@ export default function HomePage() {
       router.push("/leaves/hr");
     }
   };
+
+  if (userRole === "Admin") {
+    return (
+      <div className="flex items-center justify-center min-h-screen">
+        <div className="text-center">
+          <p className="text-gray-500">Redirecting to Admin Dashboard...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <>
