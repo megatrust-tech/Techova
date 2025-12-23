@@ -7,7 +7,9 @@ import en from "@/locales/en.json";
 import {
   fetchPendingApprovals,
   submitHRAction,
+  fetchLeaveRequestHistory,
   PendingLeaveRequest,
+  LeaveAuditLogDto,
 } from "@/lib/api/leaves";
 import { getAccessToken } from "@/lib/api/auth";
 
@@ -26,6 +28,12 @@ export default function HRLeavesPage() {
   const [comment, setComment] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submittingId, setSubmittingId] = useState<number | null>(null);
+  const [history, setHistory] = useState<LeaveAuditLogDto[]>([]);
+  const [loadingHistory, setLoadingHistory] = useState(false);
+  const [historyModalOpen, setHistoryModalOpen] = useState(false);
+  const [selectedHistoryRequestId, setSelectedHistoryRequestId] = useState<
+    number | null
+  >(null);
 
   useEffect(() => {
     document.documentElement.lang = locale;
@@ -38,7 +46,15 @@ export default function HRLeavesPage() {
       setError(null);
       try {
         const data = await fetchPendingApprovals("PendingHR");
-        setRequests(data);
+        // Handle paginated response structure: extract items if it's an object, otherwise use data directly if it's an array
+        let requestsArray: PendingLeaveRequest[] = [];
+        if (Array.isArray(data)) {
+          requestsArray = data;
+        } else if (data && typeof data === "object" && "items" in data) {
+          const items = (data as { items: unknown }).items;
+          requestsArray = Array.isArray(items) ? items : [];
+        }
+        setRequests(requestsArray);
       } catch (err) {
         setError(
           err instanceof Error
@@ -54,15 +70,45 @@ export default function HRLeavesPage() {
   }, []);
 
   const activeRequest = useMemo(
-    () => requests.find((r) => r.id === activeId) || null,
+    () =>
+      (Array.isArray(requests)
+        ? requests.find((r) => r.id === activeId)
+        : null) || null,
     [activeId, requests]
   );
+
+  // Handle view history
+  const handleViewHistory = async (requestId: number) => {
+    setSelectedHistoryRequestId(requestId);
+    setHistoryModalOpen(true);
+    setLoadingHistory(true);
+    setHistory([]);
+
+    try {
+      const historyData = await fetchLeaveRequestHistory(requestId);
+      setHistory(historyData);
+    } catch (err) {
+      console.error("Failed to load history:", err);
+    } finally {
+      setLoadingHistory(false);
+    }
+  };
 
   // Format date as YYYY-MM-DD
   const formatDateDisplay = (dateString: string): string => {
     try {
       const date = new Date(dateString);
       return date.toISOString().split("T")[0];
+    } catch {
+      return dateString;
+    }
+  };
+
+  // Format date and time for history display
+  const formatDateTimeDisplay = (dateString: string): string => {
+    try {
+      const date = new Date(dateString);
+      return date.toLocaleString();
     } catch {
       return dateString;
     }
@@ -155,7 +201,9 @@ export default function HRLeavesPage() {
       );
 
       // Remove the request from the list
-      setRequests((prev) => prev.filter((r) => r.id !== activeRequest.id));
+      setRequests((prev) =>
+        Array.isArray(prev) ? prev.filter((r) => r.id !== activeRequest.id) : []
+      );
       setActiveId(null);
       setComment("");
 
@@ -238,7 +286,7 @@ export default function HRLeavesPage() {
             >
               Loading pending approvals...
             </div>
-          ) : requests.length === 0 ? (
+          ) : !Array.isArray(requests) || requests.length === 0 ? (
             <div
               style={{
                 padding: "3rem",
@@ -251,7 +299,7 @@ export default function HRLeavesPage() {
           ) : (
             <div className="list-grid">
               {requests.map((req) => (
-                <div className="list-row" key={req.id}>
+                <div className="request-row" key={req.id}>
                   <span>
                     <strong>Employee:</strong> {req.employeeEmail}
                   </span>
@@ -287,7 +335,15 @@ export default function HRLeavesPage() {
                       {formatStatusName(req.status)}
                     </span>
                   </span>
-                  <span>
+                  <div className="actions">
+                    <button
+                      type="button"
+                      className="secondary-btn slim"
+                      onClick={() => handleViewHistory(req.id)}
+                    >
+                      History
+                    </button>
+
                     <button
                       type="button"
                       className="primary-btn slim"
@@ -296,7 +352,7 @@ export default function HRLeavesPage() {
                     >
                       {t.review}
                     </button>
-                  </span>
+                  </div>
                 </div>
               ))}
             </div>
@@ -440,6 +496,197 @@ export default function HRLeavesPage() {
                     ? "Processing..."
                     : t.approve || "Approve"}
                 </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* History Modal */}
+        {historyModalOpen && (
+          <div
+            style={{
+              position: "fixed",
+              top: 0,
+              left: 0,
+              right: 0,
+              bottom: 0,
+              backgroundColor: "rgba(0, 0, 0, 0.5)",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              zIndex: 1000,
+              padding: "20px",
+            }}
+            onClick={() => setHistoryModalOpen(false)}
+            role="presentation"
+          >
+            <div
+              className="modal-card"
+              role="dialog"
+              aria-modal="true"
+              onClick={(e) => e.stopPropagation()}
+              style={{
+                backgroundColor: "white",
+                borderRadius: "12px",
+                padding: "0",
+                maxWidth: "800px",
+                width: "100%",
+                maxHeight: "85vh",
+                display: "flex",
+                flexDirection: "column",
+                overflow: "hidden",
+              }}
+            >
+              {/* Modal Header - Fixed */}
+              <div
+                style={{
+                  padding: "24px",
+                  borderBottom: "1px solid var(--brand-border)",
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "center",
+                  flexShrink: 0,
+                }}
+              >
+                <div>
+                  <p className="eyebrow" style={{ margin: "0 0 4px 0" }}>
+                    Request History
+                  </p>
+                  <h2 style={{ margin: 0, fontSize: "1.5rem" }}>
+                    Leave Request #{selectedHistoryRequestId}
+                  </h2>
+                </div>
+                <button
+                  type="button"
+                  className="secondary-btn"
+                  onClick={() => setHistoryModalOpen(false)}
+                  style={{ flexShrink: 0 }}
+                >
+                  {t.close || "Close"}
+                </button>
+              </div>
+
+              {/* Modal Content - Scrollable */}
+              <div
+                style={{
+                  padding: "24px",
+                  overflowY: "auto",
+                  flex: 1,
+                  minHeight: 0,
+                }}
+              >
+                {loadingHistory ? (
+                  <div
+                    style={{
+                      padding: "2rem",
+                      textAlign: "center",
+                      color: "var(--text-muted)",
+                    }}
+                  >
+                    Loading history...
+                  </div>
+                ) : history.length === 0 ? (
+                  <div
+                    style={{
+                      padding: "2rem",
+                      textAlign: "center",
+                      color: "var(--text-muted)",
+                    }}
+                  >
+                    No history available for this request
+                  </div>
+                ) : (
+                  <div
+                    style={{
+                      display: "flex",
+                      flexDirection: "column",
+                      gap: "1rem",
+                    }}
+                  >
+                    {history.map((log) => (
+                      <div
+                        key={log.id}
+                        style={{
+                          padding: "1rem",
+                          border: "1px solid var(--brand-border)",
+                          borderRadius: "8px",
+                          backgroundColor: "var(--brand-surface-muted)",
+                        }}
+                      >
+                        <div
+                          style={{
+                            display: "flex",
+                            justifyContent: "space-between",
+                            alignItems: "flex-start",
+                            marginBottom: "0.75rem",
+                            flexWrap: "wrap",
+                            gap: "0.5rem",
+                          }}
+                        >
+                          <div style={{ flex: 1, minWidth: "200px" }}>
+                            <div style={{ marginBottom: "0.5rem" }}>
+                              <strong style={{ fontSize: "1rem" }}>
+                                {log.action}
+                              </strong>
+                              {log.newStatus && (
+                                <span
+                                  style={{
+                                    marginLeft: "0.5rem",
+                                    color: "var(--text-muted)",
+                                    fontSize: "0.875rem",
+                                  }}
+                                >
+                                  → {formatStatusName(log.newStatus)}
+                                </span>
+                              )}
+                            </div>
+                            <div
+                              style={{
+                                fontSize: "0.875rem",
+                                color: "var(--text-muted)",
+                              }}
+                            >
+                              <strong>By:</strong> {log.actionBy}
+                            </div>
+                          </div>
+                          <div
+                            style={{
+                              fontSize: "0.875rem",
+                              color: "var(--text-muted)",
+                              textAlign: "right",
+                              whiteSpace: "nowrap",
+                            }}
+                          >
+                            {formatDateTimeDisplay(log.actionDate)}
+                          </div>
+                        </div>
+                        {log.comment && (
+                          <div
+                            style={{
+                              marginTop: "0.75rem",
+                              padding: "0.75rem",
+                              backgroundColor: "white",
+                              borderRadius: "6px",
+                              fontSize: "0.875rem",
+                              border: "1px solid var(--brand-border)",
+                              lineHeight: "1.5",
+                            }}
+                          >
+                            <strong
+                              style={{
+                                display: "block",
+                                marginBottom: "0.25rem",
+                              }}
+                            >
+                              Comment:
+                            </strong>
+                            <span>{log.comment}</span>
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             </div>
           </div>

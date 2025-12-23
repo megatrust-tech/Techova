@@ -180,8 +180,7 @@ a {
   background: linear-gradient(
     135deg,
     #8a6dd1 0%,
-    #7b58ca 100%
-    /* var(--brand-accent) 100% */
+    #7b58ca 100% /* var(--brand-accent) 100% */
   );
   color: white;
   font-weight: 700;
@@ -496,13 +495,47 @@ a {
 
 .list-row {
   display: grid;
-  grid-template-columns: 2fr 1fr 1fr 1fr 1fr;
+  grid-template-columns: 2fr 0.8fr 1fr 1fr 1fr minmax(80px, auto) minmax(
+      80px,
+      auto
+    );
   align-items: center;
-  gap: 12px;
+  gap: 8px 12px;
   padding: 12px 14px;
   border: 1px solid var(--brand-border);
   border-radius: 12px;
   background: var(--brand-surface-muted);
+}
+
+.list-row > span:nth-last-child(-n + 2) {
+  min-width: 80px;
+  display: flex;
+  justify-content: flex-start;
+}
+
+.request-row {
+  display: grid;
+  grid-template-columns: 1.8fr 0.8fr 0.9fr 0.9fr 0.8fr 1fr 1fr auto;
+  align-items: center;
+  gap: 6px 8px;
+  padding: 10px 12px;
+  border: 1px solid var(--brand-border);
+  border-radius: 12px;
+  background: var(--brand-surface-muted);
+}
+
+.request-row .actions {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  justify-content: flex-end;
+  white-space: nowrap;
+}
+
+.request-row .actions button {
+  padding: 6px 12px;
+  font-size: 0.875rem;
+  min-width: 70px;
 }
 
 .list-headings {
@@ -510,6 +543,12 @@ a {
   border-color: transparent;
   font-weight: 700;
   color: var(--text-muted);
+}
+
+.request-row.list-headings {
+  grid-template-columns: 1.8fr 0.8fr 0.9fr 0.9fr 0.8fr 1fr 1fr auto;
+  gap: 6px 8px;
+  padding: 10px 12px;
 }
 
 .status-chip {
@@ -668,7 +707,10 @@ a {
   }
 
   .list-row {
-    grid-template-columns: 1.4fr 1fr 1fr 1fr 1fr;
+    grid-template-columns: 1.4fr 0.8fr 1fr 1fr 1fr minmax(80px, auto) minmax(
+        80px,
+        auto
+      );
   }
 
   .site-nav {
@@ -787,4 +829,37 @@ a {
   .brand-panel {
     padding: 26px 22px;
   }
+}
+
+.request-row {
+  display: grid;
+  grid-template-columns: 1.8fr 0.8fr 0.9fr 0.9fr 0.8fr 1fr 1fr auto;
+  align-items: center;
+  gap: 6px 8px;
+  padding: 10px 12px;
+  border: 1px solid var(--brand-border);
+  border-radius: 12px;
+  background: var(--brand-surface-muted);
+}
+
+.request-row .actions {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  justify-content: flex-end;
+  white-space: nowrap;
+}
+
+.request-row .actions button {
+  padding: 6px 12px;
+  font-size: 0.875rem;
+  min-width: 70px;
+  flex: 0 0 auto;
+}
+
+.request-row.list-headings {
+  background: transparent;
+  border-color: transparent;
+  font-weight: 700;
+  color: var(--text-muted);
 }

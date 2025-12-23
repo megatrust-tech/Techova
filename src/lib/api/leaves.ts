@@ -361,7 +361,6 @@ export async function submitHRAction(
   }
 }
 
-
 export interface LeaveSettingsDto {
   leaveTypeId: number;
   name: string;
@@ -422,7 +421,7 @@ export async function updateLeaveSettings(
     });
 
     if (!response.ok) {
-      const data = await response.json().catch(() => ({})); 
+      const data = await response.json().catch(() => ({}));
       if (response.status === 401) {
         throw new Error("Unauthorized. Please log in again.");
       }
@@ -431,7 +430,99 @@ export async function updateLeaveSettings(
       }
       throw new Error(data.message || "Failed to update leave settings");
     }
-    
+  } catch (error) {
+    throw error;
+  }
+}
+
+export interface CancelLeaveRequestResponse {
+  message: string;
+}
+
+export interface LeaveAuditLogDto {
+  id: number;
+  action: string;
+  actionBy: string;
+  newStatus: string;
+  comment?: string | null;
+  actionDate: string;
+}
+
+export async function fetchLeaveRequestHistory(
+  leaveId: number
+): Promise<LeaveAuditLogDto[]> {
+  try {
+    const accessToken = await getAccessToken();
+    if (!accessToken) {
+      throw new Error("Not authenticated");
+    }
+
+    const response = await fetch(`${API_BASE_URL}/leaves/${leaveId}/history`, {
+      method: "GET",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${accessToken}`,
+      },
+    });
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      if (response.status === 401) {
+        throw new Error("Unauthorized. Please log in again.");
+      }
+      if (response.status === 404) {
+        throw new Error("Leave request not found.");
+      }
+      throw new Error(data.message || "Failed to fetch leave request history");
+    }
+
+    return data;
+  } catch (error) {
+    throw error;
+  }
+}
+
+export async function cancelLeaveRequest(
+  leaveId: number
+): Promise<CancelLeaveRequestResponse> {
+  try {
+    const accessToken = await getAccessToken();
+    if (!accessToken) {
+      throw new Error("Not authenticated");
+    }
+
+    const response = await fetch(`${API_BASE_URL}/leaves/${leaveId}/cancel`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${accessToken}`,
+      },
+    });
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      if (response.status === 401) {
+        throw new Error("Unauthorized. Please log in again.");
+      }
+      if (response.status === 404) {
+        throw new Error("Leave request not found.");
+      }
+      if (response.status === 400) {
+        throw new Error(
+          data.message || "Invalid request. Cannot cancel this leave request."
+        );
+      }
+      if (response.status === 403) {
+        throw new Error(
+          data.message || "Access denied. You cannot cancel this leave request."
+        );
+      }
+      throw new Error(data.message || "Failed to cancel leave request");
+    }
+
+    return data;
   } catch (error) {
     throw error;
   }
