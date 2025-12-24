@@ -41,7 +41,7 @@ export default function Header({
       <div className="site-header__left">
         <Link href="/" className="brand">
           <Image
-            src="/taskedin-logo.svg"
+            src="/taskedin-logo.png"
             alt="TaskedIn"
             width={156}
             height={36}
