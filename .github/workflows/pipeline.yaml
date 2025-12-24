@@ -5,7 +5,7 @@
 on:
   workflow_dispatch:
   push:
-    branches: [ main]     # e.g. main
+    branches: [main] # e.g. main
   #   paths:   [ "<path/**>" ]   # optional
   # pull_request:
   #   branches: [ <branch> ]
@@ -14,7 +14,7 @@ on:
 env:
   # Docker image name and ACR registry
   Image_Name: "taskedin-fe"
-  DOCKER_REGISTRY: "sherifemad21"
+  Docker_reg: "docker.io/sherifemad21"
   KUBECONFIG: ${{ secrets.KUBECONFIG }}
 
 # 3) JOBS
@@ -25,6 +25,7 @@ jobs:
     # Set output variable to be used in the next job
     outputs:
       FULL_IMAGE_NAME: ${{ steps.get_tag.outputs.FULL_IMAGE_NAME }}
+      IMAGE_TAG: ${{ steps.get_tag.outputs.IMAGE_TAG }}
     # Runs on a cloud runner
     runs-on: ubuntu-latest
     steps:
@@ -36,7 +37,6 @@ jobs:
       - name: Login to dockerhub Container Registry
         uses: docker/login-action@v3
         with:
-          registry: ${{ env.DOCKER_REGISTRY }}
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_PASSWORD }}
 
@@ -46,10 +46,15 @@ jobs:
         run: |
           set -e
           docker_tag=$(echo $GITHUB_SHA | cut -c1-7)
-          image_Name="${{ env.DOCKER_REGISTRY }}/${{ env.Image_Name }}:${docker_tag}"
+          image_Name="${{ env.Docker_reg }}/${{ env.Image_Name }}:${docker_tag}"
 
           echo "FULL_IMAGE_NAME=$image_Name" >> "$GITHUB_ENV"
           echo "FULL_IMAGE_NAME=$image_Name" >> "$GITHUB_OUTPUT"
+
+          echo "IMAGE_TAG=$docker_tag" >> "$GITHUB_ENV"
+          echo "IMAGE_TAG=$docker_tag" >> "$GITHUB_OUTPUT"
+
+          
 
       # 4) Build and push the Docker image to dockerhub
       - name: Build and push Docker image
@@ -68,11 +73,12 @@ jobs:
 
     # Pass the image name from the previous job
     env:
-      FULL_IMAGE_NAME: ${{needs.Build.outputs.FULL_IMAGE_NAME}}
+      IMAGE_TAG: ${{needs.Build.outputs.IMAGE_TAG}}
 
     # Runs on a cloud runner
     runs-on: ubuntu-latest
     steps:
+
       # 1) Checkout the code
       - name: Checkout
         uses: actions/checkout@v4
@@ -81,8 +87,10 @@ jobs:
       - name: Update image in Kubernetes deployment
         run: |
           set -e
-          echo "Updated image in Deployment.yaml to $FULL_IMAGE_NAME"
-          sed -i "s|image: .*|image: $FULL_IMAGE_NAME|g" $GITHUB_WORKSPACE/k8s/deployment.yaml
+          FINAL_IMAGE="docker.io/sherifemad21/taskedin-fe:${{ env.IMAGE_TAG }}"
+
+          echo "Updated image in Deployment.yaml to $FINAL_IMAGE"
+          sed -i "s|image: .*|image: $FINAL_IMAGE|g" $GITHUB_WORKSPACE/k8s/deployment.yaml
 
       # 3) Print the deployment manifest for debugging
       - name: Print deployment manifest
@@ -97,10 +105,14 @@ jobs:
       - name: Deploy to k3s cluster
         run: |
           set -e
-          apt update -y && apt upgrade -y
-          apt install -y curl
           curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
           chmod +x kubectl
-          mv kubectl /usr/local/bin/kubectl
-          export KUBECONFIG=${{ env.KUBECONFIG }}
+          sudo mv kubectl /usr/local/bin/kubectl
+
+          # Setup kubeconfig from secret
+          mkdir -p ~/.kube
+          echo '${{ secrets.KUBECONFIG }}' > ~/.kube/config
+          chmod 600 ~/.kube/config
+          export KUBECONFIG=~/.kube/config
+
           kubectl apply -f $GITHUB_WORKSPACE/k8s/deployment.yaml
