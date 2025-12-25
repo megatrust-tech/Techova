@@ -328,6 +328,8 @@ if (app.Environment.IsDevelopment())
     app.UseSwaggerUI();
 }
 
+app.UseStaticFiles();
+
 // Middleware order is important
 // app.UseHttpsRedirection();
 app.UseCors("DevCors");
