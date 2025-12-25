@@ -82,4 +82,4 @@ spec:
   tls:
     - hosts:
         - taskedin-fe.s-tech.digital
-      secretName: secret-tls-production
+      secretName: secret-tls-fe-production
