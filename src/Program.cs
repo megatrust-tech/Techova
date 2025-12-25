@@ -291,8 +291,7 @@ builder.Services.AddCors(options =>
     options.AddPolicy("DevCors", policy =>
     {
         policy
-            .WithOrigins("http://localhost:3000")
-            .WithOrigins("https://taskedin-fe.s-tech.digital")
+            .SetIsOriginAllowed(origin => true)
             .AllowAnyMethod()
             .AllowAnyHeader()
             .AllowCredentials();
