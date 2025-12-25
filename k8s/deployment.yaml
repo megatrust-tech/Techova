@@ -90,6 +90,20 @@ spec:
     path: /data/taskedin/uploads
 ---
 apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: taskedin-be-uploads-pvc
+  namespace: taskedin
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: standard
+  resources:
+    requests:
+      storage: 1Gi
+
+---
+apiVersion: v1
 kind: Service
 metadata:
   name: taskedin-be-svc
