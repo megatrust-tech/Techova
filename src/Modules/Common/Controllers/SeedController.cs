@@ -1,10 +1,11 @@
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Configuration;
 using taskedin_be.scripts;
 
 namespace taskedin_be.src.Modules.Common.Controllers;
 
-[ApiController]
+[AllowAnonymous]
 [Route("api/seed")]
 public class SeedController : ControllerBase
 {
