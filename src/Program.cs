@@ -1,6 +1,7 @@
 using System.Text;
 using DotNetEnv;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.Builder;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
@@ -328,7 +329,31 @@ if (app.Environment.IsDevelopment())
     app.UseSwaggerUI();
 }
 
-app.UseStaticFiles();
+// Configure static files with CORS support
+// Note: CORS must be applied to static files via OnPrepareResponse
+// because static file middleware short-circuits the pipeline before CORS middleware runs
+app.UseStaticFiles(new StaticFileOptions
+{
+    OnPrepareResponse = ctx =>
+    {
+        // Add CORS headers to static file responses
+        var headers = ctx.Context.Response.Headers;
+        var origin = ctx.Context.Request.Headers["Origin"].ToString();
+        
+        // Allow any origin (matching DevCors policy)
+        if (!string.IsNullOrEmpty(origin))
+        {
+            headers.Append("Access-Control-Allow-Origin", origin);
+        }
+        else
+        {
+            headers.Append("Access-Control-Allow-Origin", "*");
+        }
+        headers.Append("Access-Control-Allow-Methods", "GET, OPTIONS");
+        headers.Append("Access-Control-Allow-Headers", "Content-Type, Authorization");
+        headers.Append("Access-Control-Allow-Credentials", "true");
+    }
+});
 
 // Middleware order is important
 // app.UseHttpsRedirection();

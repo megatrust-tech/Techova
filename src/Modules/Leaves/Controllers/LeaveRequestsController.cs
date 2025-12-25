@@ -2,9 +2,12 @@ using System;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using System.Security.Claims;
+using Microsoft.AspNetCore.Hosting;
+using Microsoft.EntityFrameworkCore;
 using taskedin_be.src.Modules.Leaves.DTOs;
 using taskedin_be.src.Modules.Leaves.Entities;
 using taskedin_be.src.Modules.Leaves.Services;
+using taskedin_be.src.Infrastructure.Persistence;
 
 namespace taskedin_be.src.Modules.Leaves.Controllers;
 
@@ -14,10 +17,14 @@ namespace taskedin_be.src.Modules.Leaves.Controllers;
 public class LeaveRequestsController : ControllerBase
 {
     private readonly ILeaveService _leaveService;
+    private readonly AppDbContext _context;
+    private readonly IWebHostEnvironment _environment;
 
-    public LeaveRequestsController(ILeaveService leaveService)
+    public LeaveRequestsController(ILeaveService leaveService, AppDbContext context, IWebHostEnvironment environment)
     {
         _leaveService = leaveService;
+        _context = context;
+        _environment = environment;
     }
 
     [HttpPost]
@@ -227,6 +234,90 @@ public class LeaveRequestsController : ControllerBase
     {
         await _leaveService.UpdateLeaveSettingsAsync(settings);
         return Ok(new { message = "Settings updated successfully." });
+    }
+
+    [HttpGet("{id}/attachment")]
+    public async Task<IActionResult> DownloadAttachment(int id)
+    {
+        try
+        {
+            var userId = GetCurrentUserId();
+            
+            // Get the leave request
+            var leaveRequest = await _context.LeaveRequests
+                .Include(lr => lr.Employee)
+                .Include(lr => lr.Employee!.Role)
+                .FirstOrDefaultAsync(lr => lr.Id == id);
+
+            if (leaveRequest == null)
+                return NotFound(new { message = "Leave request not found." });
+
+            // Check authorization: Employee, Manager, or HR can download
+            var user = await _context.Users
+                .Include(u => u.Role)
+                .FirstOrDefaultAsync(u => u.Id == userId)
+                ?? throw new UnauthorizedAccessException("User not found.");
+
+            bool canDownload = leaveRequest.EmployeeId == userId || // Employee owns the request
+                              leaveRequest.ManagerId == userId ||   // Manager of the request
+                              user.Role.Name.Equals("HR", StringComparison.OrdinalIgnoreCase) || // HR role
+                              user.Role.Name.Equals("Admin", StringComparison.OrdinalIgnoreCase); // Admin role
+
+            if (!canDownload)
+                return Forbid("You do not have permission to download this attachment.");
+
+            if (string.IsNullOrEmpty(leaveRequest.AttachmentPath))
+                return NotFound(new { message = "No attachment found for this leave request." });
+
+            // Get the physical file path
+            var filePath = leaveRequest.AttachmentPath.StartsWith("/")
+                ? Path.Combine(_environment.WebRootPath ?? "wwwroot", leaveRequest.AttachmentPath.TrimStart('/'))
+                : Path.Combine(_environment.WebRootPath ?? "wwwroot", "uploads", "leaves", leaveRequest.AttachmentPath);
+
+            // Normalize path separators for Windows
+            filePath = filePath.Replace('/', Path.DirectorySeparatorChar);
+
+            if (!System.IO.File.Exists(filePath))
+                return NotFound(new { message = "Attachment file not found on server." });
+
+            // Get file info
+            var fileInfo = new FileInfo(filePath);
+            var fileName = fileInfo.Name;
+            
+            // Extract original filename (remove GUID prefix if present)
+            if (fileName.Contains('_'))
+            {
+                var parts = fileName.Split('_', 2);
+                if (parts.Length > 1 && Guid.TryParse(parts[0], out _))
+                {
+                    fileName = parts[1];
+                }
+            }
+
+            // Determine content type based on file extension
+            var extension = Path.GetExtension(fileName).ToLowerInvariant();
+            var contentType = extension switch
+            {
+                ".pdf" => "application/pdf",
+                ".jpg" or ".jpeg" => "image/jpeg",
+                ".png" => "image/png",
+                ".doc" => "application/msword",
+                ".docx" => "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                _ => "application/octet-stream"
+            };
+
+            // Read file as bytes and return with proper headers
+            var fileBytes = await System.IO.File.ReadAllBytesAsync(filePath);
+            return File(fileBytes, contentType, fileName);
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            return Forbid(ex.Message);
+        }
+        catch (Exception ex)
+        {
+            return StatusCode(500, new { message = "Error downloading attachment.", error = ex.Message });
+        }
     }
 
     private int GetCurrentUserId()

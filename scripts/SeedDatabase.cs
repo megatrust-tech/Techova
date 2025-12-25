@@ -11,7 +11,7 @@ namespace taskedin_be.scripts;
 public class SeedDatabase
 {
     private const int TOTAL_DEPARTMENTS = 100;
-    private const int TOTAL_USERS = 500;
+    private const int TOTAL_USERS = 500_000;
     private const int BATCH_SIZE = 1000; // Batch size for inserts
 
     // Role distribution percentages
@@ -459,6 +459,91 @@ public class SeedDatabase
         var annualNotes = new[] { "Summer vacation", "Family trip", "Personal time off", "Traveling abroad", "Wedding attendance", "Burnout recovery", "Handling personal matters" };
         var otherNotes = new[] { "Emergency", "Personal reasons", "Unforeseen circumstances" };
 
+        // Group users by manager for creating conflicts
+        var usersByManager = usersWithManagers
+            .GroupBy(u => u.ManagerId)
+            .Where(g => g.Count() >= 2) // Only managers with at least 2 employees
+            .ToList();
+
+        // Create conflicting leaves first (same manager, same date, different employees)
+        Console.WriteLine("  Creating conflicting leave requests (same manager, same date)...");
+        var conflictDates = new List<DateTime>();
+        var conflictCount = 0;
+        var maxConflicts = Math.Min(50, usersByManager.Count); // Create up to 50 conflict scenarios
+
+        for (int i = 0; i < maxConflicts && i < usersByManager.Count; i++)
+        {
+            var managerGroup = usersByManager[i];
+            var employees = managerGroup.ToList();
+            
+            if (employees.Count < 2) continue;
+
+            // Pick 2-4 employees from this manager's team
+            var selectedEmployees = employees
+                .OrderBy(x => random.Next())
+                .Take(random.Next(2, Math.Min(5, employees.Count + 1)))
+                .ToList();
+
+            // Generate a conflict date (same date for all selected employees)
+            int month = random.Next(1, 13);
+            int day = random.Next(1, 28);
+            var conflictDate = new DateTime(now.Year, month, day);
+            conflictDates.Add(conflictDate);
+            var numberOfDays = random.Next(1, 4); // 1 to 3 days
+            var endDate = conflictDate.AddDays(numberOfDays);
+
+            // Determine Leave Type
+            var leaveTypes = Enum.GetValues(typeof(LeaveType));
+            var leaveType = (LeaveType)leaveTypes.GetValue(random.Next(leaveTypes.Length))!;
+
+            // Generate Note based on Type
+            string note;
+            if (leaveType.ToString().Contains("Sick"))
+                note = sickNotes[random.Next(sickNotes.Length)];
+            else if (leaveType.ToString().Contains("Annual"))
+                note = annualNotes[random.Next(annualNotes.Length)];
+            else
+                note = otherNotes[random.Next(otherNotes.Length)];
+
+            // Create leave requests for each selected employee with the same date
+            foreach (var employee in selectedEmployees)
+            {
+                // Mix of PendingManager and PendingHR for conflicts
+                var status = random.NextDouble() < 0.5 ? LeaveStatus.PendingManager : LeaveStatus.PendingHR;
+
+                var leaveRequest = new LeaveRequest
+                {
+                    EmployeeId = employee.Id,
+                    ManagerId = employee.ManagerId!.Value,
+                    Type = leaveType,
+                    StartDate = conflictDate,
+                    EndDate = endDate,
+                    NumberOfDays = numberOfDays,
+                    Status = status,
+                    Notes = $"{note} (Conflict scenario)",
+                    AttachmentPath = null,
+                    CreatedAt = now.AddDays(-random.Next(1, 30)),
+                    UpdatedAt = now
+                };
+
+                batch.Add(leaveRequest);
+                generatedCount++;
+                conflictCount++;
+            }
+
+            if (batch.Count >= BATCH_SIZE)
+            {
+                await context.LeaveRequests.AddRangeAsync(batch);
+                await context.SaveChangesAsync();
+                batch.Clear();
+                context.ChangeTracker.Clear();
+                Console.WriteLine($"  Generated {generatedCount:N0} leave requests (including {conflictCount} conflicts)...");
+            }
+        }
+
+        Console.WriteLine($"  Created {conflictCount} conflicting leave requests");
+
+        // Now create regular leave requests with proper status distribution
         foreach (var user in usersWithManagers)
         {
             // 60% chance a user has no leave requests, 40% chance they have 1-3 requests
@@ -488,19 +573,19 @@ public class SeedDatabase
                 var numberOfDays = random.Next(1, 6); // 1 to 5 days
                 var endDate = startDate.AddDays(numberOfDays);
 
-                // Determine Status
+                // Determine Status - Focus on PendingManager and PendingHR
                 // Distribution: 
                 // 10% Cancelled
                 // 10% Rejected
-                // 30% Approved
-                // 20% PendingHR
+                // 20% Approved
+                // 30% PendingHR
                 // 30% PendingManager
                 var statusRoll = random.NextDouble();
                 LeaveStatus status;
 
                 if (statusRoll < 0.1) status = LeaveStatus.Cancelled;
                 else if (statusRoll < 0.2) status = LeaveStatus.Rejected;
-                else if (statusRoll < 0.5) status = LeaveStatus.Approved;
+                else if (statusRoll < 0.4) status = LeaveStatus.Approved;
                 else if (statusRoll < 0.7) status = LeaveStatus.PendingHR;
                 else status = LeaveStatus.PendingManager;
 
@@ -525,9 +610,7 @@ public class SeedDatabase
 
             if (batch.Count >= BATCH_SIZE)
             {
-                // We use Set<LeaveRequest>() or context.LeaveRequests depending on property availability
-                // Assuming standard DbSet property name 'LeaveRequests' or generic Set method
-                await context.Set<LeaveRequest>().AddRangeAsync(batch);
+                await context.LeaveRequests.AddRangeAsync(batch);
                 await context.SaveChangesAsync();
                 batch.Clear();
                 context.ChangeTracker.Clear();
@@ -537,7 +620,7 @@ public class SeedDatabase
 
         if (batch.Any())
         {
-            await context.Set<LeaveRequest>().AddRangeAsync(batch);
+            await context.LeaveRequests.AddRangeAsync(batch);
             await context.SaveChangesAsync();
             Console.WriteLine($"  Generated {generatedCount:N0} leave requests...");
         }
