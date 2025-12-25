@@ -60,7 +60,7 @@ metadata:
   name: taskedin-fe-ingress
   namespace: taskedin
   annotations:
-    cert-manager.io/cluster-issuer: staging
+    cert-manager.io/cluster-issuer: production
     acme.cert-manager.io/http01-edit-in-place: "true"
     nginx.ingress.kubernetes.io/force-ssl-redirect: "false"
     nginx.ingress.kubernetes.io/rewrite-target: /
@@ -82,4 +82,4 @@ spec:
   tls:
     - hosts:
         - taskedin-fe.s-tech.digital
-      secretName: secret-tls-staging
+      secretName: secret-tls-production
