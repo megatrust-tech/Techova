@@ -76,17 +76,18 @@ spec:
             claimName: taskedin-be-uploads-pvc
 ---
 apiVersion: v1
-kind: PersistentVolumeClaim
+kind: PersistentVolume
 metadata:
-  name: taskedin-be-uploads-pvc
-  namespace: taskedin
+  name: taskedin-be-uploads-pv
 spec:
+  capacity:
+    storage: 1Gi
   accessModes:
     - ReadWriteOnce
-  resources:
-    requests:
-      storage: 10Gi
-  storageClassName: standard # Change this to match your cluster's storage class
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: standard
+  hostPath:
+    path: /data/taskedin/uploads
 ---
 apiVersion: v1
 kind: Service
