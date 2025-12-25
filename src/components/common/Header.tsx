@@ -39,7 +39,7 @@ export default function Header({
   return (
     <header className="site-header">
       <div className="site-header__left">
-        <Link href="/" className="brand">
+        <div className="brand">
           <Image
             src="/taskedin-logo.svg"
             alt="TaskedIn"
@@ -47,7 +47,7 @@ export default function Header({
             height={36}
             priority
           />
-        </Link>
+        </div>
         <nav className="site-nav">
           <Link href="/">{labels.home}</Link>
           <Link href="/#why">{labels.why}</Link>

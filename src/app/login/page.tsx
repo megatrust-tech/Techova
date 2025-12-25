@@ -19,9 +19,19 @@ export default function LoginPage() {
   const router = useRouter();
   const t = useMemo(() => translations[locale], [locale]);
 
+  // Load language preference on mount
+  useEffect(() => {
+    const savedLocale = localStorage.getItem("locale") as Locale;
+    if (savedLocale && (savedLocale === "en" || savedLocale === "ar")) {
+      setLocale(savedLocale);
+    }
+  }, []);
+
+  // Update document and storage when locale changes
   useEffect(() => {
     document.documentElement.lang = locale;
     document.documentElement.dir = locale === "ar" ? "rtl" : "ltr";
+    localStorage.setItem("locale", locale);
   }, [locale]);
 
   useEffect(() => {
