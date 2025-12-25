@@ -62,6 +62,8 @@ jobs:
           push: true
           tags: ${{ env.FULL_IMAGE_NAME }}
           file: ./Dockerfile
+          build-args: |
+            CERT_PASS=${{ secrets.CERT_PASS }}
 
   # 2) Deploy to k3s cluster
   Deploy:
