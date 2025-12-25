@@ -21,15 +21,10 @@ type HeaderProps = {
 };
 
 export default function Header({
-  locale,
-  onToggleLocale,
   labels,
   showLogout = false,
 }: HeaderProps) {
   const router = useRouter();
-  const altLocale: Locale = locale === "en" ? "ar" : "en";
-  const flagSrc = altLocale === "en" ? "/en.svg" : "/ar.svg";
-  const altLabel = altLocale === "en" ? "English" : "Arabic";
 
   const handleLogout = async () => {
     await logout();
@@ -66,19 +61,6 @@ export default function Header({
             Logout
           </button>
         )}
-        <button
-          type="button"
-          className="lang-toggle header-lang"
-          aria-label={`Switch to ${altLocale === "en" ? "English" : "Arabic"}`}
-          onClick={() => onToggleLocale?.(altLocale)}
-        >
-          <span className="lang-text">
-            {altLabel === "English" ? "English" : "العربية"}
-          </span>
-          <span className="lang-flag">
-            <Image src={flagSrc} alt={altLabel} width={24} height={16} />
-          </span>
-        </button>
       </div>
     </header>
   );
