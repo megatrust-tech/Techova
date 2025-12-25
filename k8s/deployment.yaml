@@ -53,20 +53,40 @@ spec:
         app: taskedin-be
     spec:
       containers:
-      - name: taskedin-be
-        image: DOCKER_IMAGE
-        envFrom:
-          - configMapRef:
-              name: taskedin-be-environment
-        resources:
-          requests:
-            memory: 200M
-            cpu: 100m
-          limits:
-            memory: 500M
-            cpu: 200m
-        ports:
-          - containerPort: 3001
+        - name: taskedin-be
+          image: DOCKER_IMAGE
+          envFrom:
+            - configMapRef:
+                name: taskedin-be-environment
+          resources:
+            requests:
+              memory: 200M
+              cpu: 100m
+            limits:
+              memory: 500M
+              cpu: 200m
+          ports:
+            - containerPort: 3001
+          volumeMounts:
+            - name: uploads-storage
+              mountPath: /app/wwwroot/uploads
+      volumes:
+        - name: uploads-storage
+          persistentVolumeClaim:
+            claimName: taskedin-be-uploads-pvc
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: taskedin-be-uploads-pvc
+  namespace: taskedin
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 10Gi
+  storageClassName: standard # Change this to match your cluster's storage class
 ---
 apiVersion: v1
 kind: Service
@@ -77,8 +97,8 @@ spec:
   selector:
     app: taskedin-be
   ports:
-  - port: 3001
-    protocol: TCP
+    - port: 3001
+      protocol: TCP
 ---
 apiVersion: networking.k8s.io/v1
 kind: Ingress
@@ -98,13 +118,13 @@ spec:
     - host: taskedin-be.s-tech.digital
       http:
         paths:
-        - pathType: Prefix
-          path: /
-          backend:
-            service:
-              name: taskedin-be-svc
-              port: 
-                number: 3001
+          - pathType: Prefix
+            path: /
+            backend:
+              service:
+                name: taskedin-be-svc
+                port:
+                  number: 3001
   tls:
     - hosts:
         - taskedin-be.s-tech.digital

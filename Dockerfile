@@ -33,6 +33,9 @@ COPY --from=build /app/publish .
 # Copy the HTTPS certificate from the build stage
 COPY --from=build /root/.dotnet/https/taskedin-be.pfx ./https/taskedin-be.pfx
 
+# Create wwwroot/uploads/leaves directory for file uploads
+RUN mkdir -p /app/wwwroot/uploads/leaves
+
 # Expose port 3001 for the application
 EXPOSE 3001
 
