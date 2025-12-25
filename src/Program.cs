@@ -329,7 +329,7 @@ if (app.Environment.IsDevelopment())
 }
 
 // Middleware order is important
-app.UseHttpsRedirection();
+// app.UseHttpsRedirection();
 app.UseCors("DevCors");
 app.UseAuthentication(); // Must come before UseAuthorization
 app.UseAuthorization();
