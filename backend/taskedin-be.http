@@ -1,0 +1,6 @@
+@taskedin_be_HostAddress = http://localhost:5114
+
+GET {{taskedin_be_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###
