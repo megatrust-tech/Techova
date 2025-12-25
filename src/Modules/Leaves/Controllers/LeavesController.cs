@@ -1,15 +1,16 @@
 using Microsoft.AspNetCore.Mvc;
 
-namespace taskedin_be.src.Modules.Leaves.Controllers;
-
-[ApiController]
-[Route("leaves")]
-public class LeavesController : ControllerBase
+namespace taskedin_be.src.Modules.Leaves.Controllers
 {
-    [HttpGet("health")]
-    public IActionResult Health()
+    [ApiController]
+    [Route("leaves")]
+    public class LeavesController : ControllerBase
     {
-        Console.WriteLine("Leaves module is running");
-        return Ok("Leaves module is running successfully");
+        [HttpGet("health")]
+        public IActionResult Health()
+        {
+            Console.WriteLine("Leaves module is running");
+            return Ok("Leaves module is running successfully");
+        }
     }
 }
