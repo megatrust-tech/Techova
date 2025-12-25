@@ -32,6 +32,8 @@ data:
   ASPNETCORE_Kestrel__Certificates__Default__Password: "password123"
   ASPNETCORE_Kestrel__Certificates__Default__Path: "/app/https/taskedin-be.pfx"
 
+  CORS_ALLOWED_ORIGINS: "http://localhost:3000,http://localhost:8000,https://taskedin-fe.s-tech.digital,https://taskedin-be.s-tech.digital"
+
 ---
 kind: Deployment
 apiVersion: apps/v1
