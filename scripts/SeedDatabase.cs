@@ -45,11 +45,14 @@ public class SeedDatabase
             .AddEnvironmentVariables()
             .Build();
 
-        var connectionString = configuration.GetConnectionString("DefaultConnection");
+        // Build connection string using same logic as Program.cs
+        // Priority: 1) DB_CONNECTION_STRING env var, 2) Individual DB_* env vars, 3) appsettings.json
+        var connectionString = BuildConnectionString(configuration);
 
         if (string.IsNullOrEmpty(connectionString))
         {
             Console.WriteLine("ERROR: Connection string not found!");
+            Console.WriteLine("Set DB_CONNECTION_STRING (full string) or individual variables (DB_SERVER, DB_PORT, DB_NAME, DB_USER, DB_PASSWORD)");
             return;
         }
 
@@ -104,6 +107,46 @@ public class SeedDatabase
             Console.WriteLine($"ERROR: {ex.Message}");
             Console.WriteLine(ex.StackTrace);
         }
+    }
+
+    private static string? BuildConnectionString(IConfiguration configuration)
+    {
+        // Option 1: Full connection string from environment variable
+        var fullConnectionString = Environment.GetEnvironmentVariable("DB_CONNECTION_STRING");
+        if (!string.IsNullOrEmpty(fullConnectionString))
+        {
+            return fullConnectionString;
+        }
+
+        // Option 2: Build from individual components
+        var server = Environment.GetEnvironmentVariable("DB_SERVER");
+        var port = Environment.GetEnvironmentVariable("DB_PORT");
+        var database = Environment.GetEnvironmentVariable("DB_NAME");
+        var userId = Environment.GetEnvironmentVariable("DB_USER");
+        var password = Environment.GetEnvironmentVariable("DB_PASSWORD");
+
+        // If any individual component is set, build the connection string
+        if (!string.IsNullOrEmpty(server) || !string.IsNullOrEmpty(database) ||
+            !string.IsNullOrEmpty(userId) || !string.IsNullOrEmpty(password))
+        {
+            server ??= "localhost";
+            port ??= "1433";
+            database ??= "TaskedInDb";
+            userId ??= "sa";
+
+            var connectionString = $"Server={server},{port};Database={database};User Id={userId};";
+
+            if (!string.IsNullOrEmpty(password))
+            {
+                connectionString += $"Password={password};";
+            }
+
+            connectionString += "TrustServerCertificate=True";
+            return connectionString;
+        }
+
+        // Option 3: Fall back to appsettings.json
+        return configuration.GetConnectionString("DefaultConnection");
     }
 
     private static async Task<Dictionary<string, Role>> EnsureRolesAsync(AppDbContext context)
