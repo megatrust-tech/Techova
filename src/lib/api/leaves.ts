@@ -48,11 +48,12 @@ export interface LeaveBalanceSummaryDto {
   remainingDays: number;
 }
 
-export interface LeaveBalanceSummaryDto {
-  type: string;
-  totalDays: number;
-  usedDays: number;
-  remainingDays: number;
+export interface PaginatedResponse<T> {
+  items: T[];
+  totalCount: number;
+  pageNumber: number;
+  pageSize: number;
+  totalPages: number;
 }
 
 import { getAccessToken } from "./auth";
@@ -155,20 +156,26 @@ export async function submitLeaveRequest(
   }
 }
 
-export async function fetchMyLeaves(): Promise<MyLeaveRequest[]> {
+export async function fetchMyLeaves(
+  pageNumber: number = 1,
+  pageSize: number = 10
+): Promise<PaginatedResponse<MyLeaveRequest>> {
   try {
     const accessToken = await getAccessToken();
     if (!accessToken) {
       throw new Error("Not authenticated");
     }
 
-    const response = await fetch(`${API_BASE_URL}/leaves/my-leaves`, {
-      method: "GET",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${accessToken}`,
-      },
-    });
+    const response = await fetch(
+      `${API_BASE_URL}/leaves/my-leaves?pageNumber=${pageNumber}&pageSize=${pageSize}`,
+      {
+        method: "GET",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${accessToken}`,
+        },
+      }
+    );
 
     const data = await response.json();
 
@@ -176,7 +183,25 @@ export async function fetchMyLeaves(): Promise<MyLeaveRequest[]> {
       throw new Error(data.message || "Failed to fetch leave requests");
     }
 
-    return data;
+    // Handle paginated response - extract items if it's an object, otherwise wrap array
+    if (Array.isArray(data)) {
+      return {
+        items: data,
+        totalCount: data.length,
+        pageNumber: 1,
+        pageSize: data.length,
+        totalPages: 1,
+      };
+    } else if (data && typeof data === "object" && "items" in data) {
+      return data as PaginatedResponse<MyLeaveRequest>;
+    }
+    return {
+      items: [],
+      totalCount: 0,
+      pageNumber: 1,
+      pageSize: pageSize,
+      totalPages: 0,
+    };
   } catch (error) {
     throw error;
   }
@@ -235,8 +260,10 @@ export interface ManagerActionResponse {
 }
 
 export async function fetchPendingApprovals(
-  status: string = "PendingManager"
-): Promise<PendingLeaveRequest[]> {
+  status: string = "PendingManager",
+  pageNumber: number = 1,
+  pageSize: number = 10
+): Promise<PaginatedResponse<PendingLeaveRequest>> {
   try {
     const accessToken = await getAccessToken();
     if (!accessToken) {
@@ -246,7 +273,7 @@ export async function fetchPendingApprovals(
     const response = await fetch(
       `${API_BASE_URL}/leaves/pending-approval?status=${encodeURIComponent(
         status
-      )}`,
+      )}&pageNumber=${pageNumber}&pageSize=${pageSize}`,
       {
         method: "GET",
         headers: {
@@ -265,7 +292,25 @@ export async function fetchPendingApprovals(
       throw new Error(data.message || "Failed to fetch pending approvals");
     }
 
-    return data;
+    // Handle paginated response - extract items if it's an object, otherwise wrap array
+    if (Array.isArray(data)) {
+      return {
+        items: data,
+        totalCount: data.length,
+        pageNumber: 1,
+        pageSize: data.length,
+        totalPages: 1,
+      };
+    } else if (data && typeof data === "object" && "items" in data) {
+      return data as PaginatedResponse<PendingLeaveRequest>;
+    }
+    return {
+      items: [],
+      totalCount: 0,
+      pageNumber: 1,
+      pageSize: pageSize,
+      totalPages: 0,
+    };
   } catch (error) {
     throw error;
   }

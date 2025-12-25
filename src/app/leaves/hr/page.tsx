@@ -22,6 +22,10 @@ export default function HRLeavesPage() {
 
   const [requests, setRequests] = useState<PendingLeaveRequest[]>([]);
   const [loading, setLoading] = useState(true);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
+  const [totalPages, setTotalPages] = useState(1);
+  const [totalCount, setTotalCount] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [activeId, setActiveId] = useState<number | null>(null);
@@ -45,16 +49,14 @@ export default function HRLeavesPage() {
       setLoading(true);
       setError(null);
       try {
-        const data = await fetchPendingApprovals("PendingHR");
-        // Handle paginated response structure: extract items if it's an object, otherwise use data directly if it's an array
-        let requestsArray: PendingLeaveRequest[] = [];
-        if (Array.isArray(data)) {
-          requestsArray = data;
-        } else if (data && typeof data === "object" && "items" in data) {
-          const items = (data as { items: unknown }).items;
-          requestsArray = Array.isArray(items) ? items : [];
-        }
-        setRequests(requestsArray);
+        const data = await fetchPendingApprovals(
+          "PendingHR",
+          currentPage,
+          pageSize
+        );
+        setRequests(data.items);
+        setTotalPages(data.totalPages);
+        setTotalCount(data.totalCount);
       } catch (err) {
         setError(
           err instanceof Error
@@ -67,7 +69,7 @@ export default function HRLeavesPage() {
     };
 
     loadPendingApprovals();
-  }, []);
+  }, [currentPage, pageSize]);
 
   const activeRequest = useMemo(
     () =>
@@ -200,10 +202,24 @@ export default function HRLeavesPage() {
         } successfully`
       );
 
-      // Remove the request from the list
-      setRequests((prev) =>
-        Array.isArray(prev) ? prev.filter((r) => r.id !== activeRequest.id) : []
-      );
+      // Reload the current page
+      try {
+        const data = await fetchPendingApprovals(
+          "PendingHR",
+          currentPage,
+          pageSize
+        );
+        setRequests(data.items);
+        setTotalPages(data.totalPages);
+        setTotalCount(data.totalCount);
+        // If current page is empty and not on first page, go to previous page
+        if (data.items.length === 0 && currentPage > 1) {
+          setCurrentPage((prev) => Math.max(1, prev - 1));
+        }
+      } catch (err) {
+        console.error("Failed to refresh requests:", err);
+      }
+
       setActiveId(null);
       setComment("");
 
@@ -355,6 +371,133 @@ export default function HRLeavesPage() {
                   </div>
                 </div>
               ))}
+            </div>
+          )}
+          {/* Pagination Controls */}
+          {!loading && totalPages > 1 && (
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+                padding: "1.5rem",
+                borderTop: "1px solid var(--brand-border)",
+                gap: "1rem",
+                flexWrap: "wrap",
+              }}
+            >
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "0.5rem",
+                  fontSize: "0.875rem",
+                  color: "var(--text-muted)",
+                }}
+              >
+                <span>
+                  Showing {(currentPage - 1) * pageSize + 1} to{" "}
+                  {Math.min(currentPage * pageSize, totalCount)} of {totalCount}{" "}
+                  results
+                </span>
+                <select
+                  value={pageSize}
+                  onChange={(e) => {
+                    setPageSize(Number(e.target.value));
+                    setCurrentPage(1);
+                  }}
+                  className="input"
+                  style={{
+                    padding: "0.25rem 0.5rem",
+                    fontSize: "0.875rem",
+                    minWidth: "80px",
+                  }}
+                >
+                  <option value={5}>5 per page</option>
+                  <option value={10}>10 per page</option>
+                  <option value={20}>20 per page</option>
+                  <option value={50}>50 per page</option>
+                </select>
+              </div>
+              <div
+                style={{
+                  display: "flex",
+                  gap: "0.5rem",
+                  alignItems: "center",
+                }}
+              >
+                <button
+                  type="button"
+                  className="secondary-btn slim"
+                  onClick={() => setCurrentPage(1)}
+                  disabled={currentPage === 1}
+                  style={{
+                    padding: "0.5rem 1rem",
+                    fontSize: "0.875rem",
+                    opacity: currentPage === 1 ? 0.5 : 1,
+                    cursor: currentPage === 1 ? "not-allowed" : "pointer",
+                  }}
+                >
+                  First
+                </button>
+                <button
+                  type="button"
+                  className="secondary-btn slim"
+                  onClick={() =>
+                    setCurrentPage((prev) => Math.max(1, prev - 1))
+                  }
+                  disabled={currentPage === 1}
+                  style={{
+                    padding: "0.5rem 1rem",
+                    fontSize: "0.875rem",
+                    opacity: currentPage === 1 ? 0.5 : 1,
+                    cursor: currentPage === 1 ? "not-allowed" : "pointer",
+                  }}
+                >
+                  Previous
+                </button>
+                <span
+                  style={{
+                    padding: "0.5rem 1rem",
+                    fontSize: "0.875rem",
+                    color: "var(--text-main)",
+                  }}
+                >
+                  Page {currentPage} of {totalPages}
+                </span>
+                <button
+                  type="button"
+                  className="secondary-btn slim"
+                  onClick={() =>
+                    setCurrentPage((prev) => Math.min(totalPages, prev + 1))
+                  }
+                  disabled={currentPage === totalPages}
+                  style={{
+                    padding: "0.5rem 1rem",
+                    fontSize: "0.875rem",
+                    opacity: currentPage === totalPages ? 0.5 : 1,
+                    cursor:
+                      currentPage === totalPages ? "not-allowed" : "pointer",
+                  }}
+                >
+                  Next
+                </button>
+                <button
+                  type="button"
+                  className="secondary-btn slim"
+                  onClick={() => setCurrentPage(totalPages)}
+                  disabled={currentPage === totalPages}
+                  style={{
+                    padding: "0.5rem 1rem",
+                    fontSize: "0.875rem",
+                    opacity: currentPage === totalPages ? 0.5 : 1,
+                    cursor:
+                      currentPage === totalPages ? "not-allowed" : "pointer",
+                  }}
+                >
+                  Last
+                </button>
+              </div>
             </div>
           )}
         </section>

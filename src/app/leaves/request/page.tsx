@@ -42,6 +42,10 @@ export default function LeaveRequestPage() {
   const [leaveStatuses, setLeaveStatuses] = useState<LeaveStatus[]>([]);
   const [myLeaves, setMyLeaves] = useState<MyLeaveRequest[]>([]);
   const [loadingLeaves, setLoadingLeaves] = useState(true);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
+  const [totalPages, setTotalPages] = useState(1);
+  const [totalCount, setTotalCount] = useState(0);
   const [selectedLeaveType, setSelectedLeaveType] = useState<number | "">("");
   const [notes, setNotes] = useState<string>("");
   const [attachment, setAttachment] = useState<File | null>(null);
@@ -71,23 +75,17 @@ export default function LeaveRequestPage() {
     // Fetch leave types, statuses, my leaves, and balance
     const loadData = async () => {
       try {
-        const [types, statuses, leaves, balance] = await Promise.all([
+        const [types, statuses, leavesResponse, balance] = await Promise.all([
           fetchLeaveTypes(),
           fetchLeaveStatuses(),
-          fetchMyLeaves(),
+          fetchMyLeaves(currentPage, pageSize),
           fetchRemainingLeaves(),
         ]);
         setLeaveTypes(types);
         setLeaveStatuses(statuses);
-        // Handle paginated response structure: extract items if it's an object, otherwise use data directly if it's an array
-        let leavesArray: MyLeaveRequest[] = [];
-        if (Array.isArray(leaves)) {
-          leavesArray = leaves;
-        } else if (leaves && typeof leaves === "object" && "items" in leaves) {
-          const items = (leaves as { items: unknown }).items;
-          leavesArray = Array.isArray(items) ? items : [];
-        }
-        setMyLeaves(leavesArray);
+        setMyLeaves(leavesResponse.items);
+        setTotalPages(leavesResponse.totalPages);
+        setTotalCount(leavesResponse.totalCount);
         setLeaveBalance(balance);
       } catch (err) {
         setError(
@@ -102,7 +100,7 @@ export default function LeaveRequestPage() {
     };
 
     loadData();
-  }, []);
+  }, [currentPage, pageSize]);
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -187,19 +185,13 @@ export default function LeaveRequestPage() {
 
       // Refresh leave requests and balance
       try {
-        const [leaves, balance] = await Promise.all([
-          fetchMyLeaves(),
+        const [leavesResponse, balance] = await Promise.all([
+          fetchMyLeaves(currentPage, pageSize),
           fetchRemainingLeaves(),
         ]);
-        // Handle paginated response structure: extract items if it's an object, otherwise use data directly if it's an array
-        let leavesArray: MyLeaveRequest[] = [];
-        if (Array.isArray(leaves)) {
-          leavesArray = leaves;
-        } else if (leaves && typeof leaves === "object" && "items" in leaves) {
-          const items = (leaves as { items: unknown }).items;
-          leavesArray = Array.isArray(items) ? items : [];
-        }
-        setMyLeaves(leavesArray);
+        setMyLeaves(leavesResponse.items);
+        setTotalPages(leavesResponse.totalPages);
+        setTotalCount(leavesResponse.totalCount);
         setLeaveBalance(balance);
       } catch (err) {
         console.error("Failed to refresh leaves:", err);
@@ -234,19 +226,13 @@ export default function LeaveRequestPage() {
 
       // Refresh leave requests and balance
       try {
-        const [leaves, balance] = await Promise.all([
-          fetchMyLeaves(),
+        const [leavesResponse, balance] = await Promise.all([
+          fetchMyLeaves(currentPage, pageSize),
           fetchRemainingLeaves(),
         ]);
-        // Handle paginated response structure: extract items if it's an object, otherwise use data directly if it's an array
-        let leavesArray: MyLeaveRequest[] = [];
-        if (Array.isArray(leaves)) {
-          leavesArray = leaves;
-        } else if (leaves && typeof leaves === "object" && "items" in leaves) {
-          const items = (leaves as { items: unknown }).items;
-          leavesArray = Array.isArray(items) ? items : [];
-        }
-        setMyLeaves(leavesArray);
+        setMyLeaves(leavesResponse.items);
+        setTotalPages(leavesResponse.totalPages);
+        setTotalCount(leavesResponse.totalCount);
         setLeaveBalance(balance);
       } catch (err) {
         console.error("Failed to refresh leaves:", err);
@@ -710,6 +696,133 @@ export default function LeaveRequestPage() {
               ))
             )}
           </div>
+          {/* Pagination Controls */}
+          {!loadingLeaves && totalPages > 1 && (
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+                padding: "1.5rem",
+                borderTop: "1px solid var(--brand-border)",
+                gap: "1rem",
+                flexWrap: "wrap",
+              }}
+            >
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "0.5rem",
+                  fontSize: "0.875rem",
+                  color: "var(--text-muted)",
+                }}
+              >
+                <span>
+                  Showing {(currentPage - 1) * pageSize + 1} to{" "}
+                  {Math.min(currentPage * pageSize, totalCount)} of {totalCount}{" "}
+                  results
+                </span>
+                <select
+                  value={pageSize}
+                  onChange={(e) => {
+                    setPageSize(Number(e.target.value));
+                    setCurrentPage(1);
+                  }}
+                  className="input"
+                  style={{
+                    padding: "0.25rem 0.5rem",
+                    fontSize: "0.875rem",
+                    minWidth: "80px",
+                  }}
+                >
+                  <option value={5}>5 per page</option>
+                  <option value={10}>10 per page</option>
+                  <option value={20}>20 per page</option>
+                  <option value={50}>50 per page</option>
+                </select>
+              </div>
+              <div
+                style={{
+                  display: "flex",
+                  gap: "0.5rem",
+                  alignItems: "center",
+                }}
+              >
+                <button
+                  type="button"
+                  className="secondary-btn slim"
+                  onClick={() => setCurrentPage(1)}
+                  disabled={currentPage === 1}
+                  style={{
+                    padding: "0.5rem 1rem",
+                    fontSize: "0.875rem",
+                    opacity: currentPage === 1 ? 0.5 : 1,
+                    cursor: currentPage === 1 ? "not-allowed" : "pointer",
+                  }}
+                >
+                  First
+                </button>
+                <button
+                  type="button"
+                  className="secondary-btn slim"
+                  onClick={() =>
+                    setCurrentPage((prev) => Math.max(1, prev - 1))
+                  }
+                  disabled={currentPage === 1}
+                  style={{
+                    padding: "0.5rem 1rem",
+                    fontSize: "0.875rem",
+                    opacity: currentPage === 1 ? 0.5 : 1,
+                    cursor: currentPage === 1 ? "not-allowed" : "pointer",
+                  }}
+                >
+                  Previous
+                </button>
+                <span
+                  style={{
+                    padding: "0.5rem 1rem",
+                    fontSize: "0.875rem",
+                    color: "var(--text-main)",
+                  }}
+                >
+                  Page {currentPage} of {totalPages}
+                </span>
+                <button
+                  type="button"
+                  className="secondary-btn slim"
+                  onClick={() =>
+                    setCurrentPage((prev) => Math.min(totalPages, prev + 1))
+                  }
+                  disabled={currentPage === totalPages}
+                  style={{
+                    padding: "0.5rem 1rem",
+                    fontSize: "0.875rem",
+                    opacity: currentPage === totalPages ? 0.5 : 1,
+                    cursor:
+                      currentPage === totalPages ? "not-allowed" : "pointer",
+                  }}
+                >
+                  Next
+                </button>
+                <button
+                  type="button"
+                  className="secondary-btn slim"
+                  onClick={() => setCurrentPage(totalPages)}
+                  disabled={currentPage === totalPages}
+                  style={{
+                    padding: "0.5rem 1rem",
+                    fontSize: "0.875rem",
+                    opacity: currentPage === totalPages ? 0.5 : 1,
+                    cursor:
+                      currentPage === totalPages ? "not-allowed" : "pointer",
+                  }}
+                >
+                  Last
+                </button>
+              </div>
+            </div>
+          )}
         </section>
       </main>
 
