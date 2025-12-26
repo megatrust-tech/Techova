@@ -1,0 +1,146 @@
+# Backend configmap
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: taskedin-be-environment
+  namespace: taskedin
+data:
+  ### Database Configuration
+  DB_SERVER: "my-mssql.mssql.svc.cluster.local"
+  DB_PORT: "1433"
+  DB_NAME: "TaskedInDb"
+  DB_USER: "sa"
+  DB_PASSWORD: "UDnV7LXMKA"
+
+  ### JWT Configuration
+  JWT_ACCESS_TOKEN_SECRET: "Kq7F9R1sVbZ8A0nC6xLwYdT5p4M2HJeUeX9mQfGkS0A"
+  JWT_REFRESH_TOKEN_SECRET: "Kq7F9R1sVbZ8A0nC6xLwYdT5p4M2HJeUeX9mQfGkS0B"
+  JWT_ISSUER: "TaskedInApi"
+  JWT_AUDIENCE: "TaskedInClient"
+  JWT_REFRESH_TOKEN_EXPIRY_DAYS: "7"
+
+  ### Email Configuration
+  EMAIL_SMTP_SERVER: "smtp.office365.com"
+  EMAIL_PORT: "587"
+  EMAIL_SENDER_NAME: "TaskedIn HR"
+  EMAIL_SENDER_EMAIL: "info@techova.dev"
+  EMAIL_USERNAME: "info@techova.dev"
+  EMAIL_PASSWORD: "zyxrtfzcmvqxjxnn"
+
+  # Set environment variables for HTTPS
+  ASPNETCORE_URLS: "https://0.0.0.0:3001;http://0.0.0.0:3000"
+  ASPNETCORE_Kestrel__Certificates__Default__Password: "password123"
+  ASPNETCORE_Kestrel__Certificates__Default__Path: "/app/https/taskedin-be.pfx"
+
+  CORS_ALLOWED_ORIGINS: "http://localhost:3000,http://localhost:8000,https://taskedin-fe.s-tech.digital,https://taskedin-be.s-tech.digital"
+
+---
+kind: Deployment
+apiVersion: apps/v1
+metadata:
+  name: taskedin-be
+  namespace: taskedin
+  labels:
+    app: taskedin-be
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: taskedin-be
+  template:
+    metadata:
+      labels:
+        app: taskedin-be
+    spec:
+      containers:
+        - name: taskedin-be
+          image: DOCKER_IMAGE
+          envFrom:
+            - configMapRef:
+                name: taskedin-be-environment
+          resources:
+            requests:
+              memory: 200M
+              cpu: 100m
+            limits:
+              memory: 500M
+              cpu: 200m
+          ports:
+            - containerPort: 3001
+          volumeMounts:
+            - name: uploads-storage
+              mountPath: /app/wwwroot/uploads
+      volumes:
+        - name: uploads-storage
+          persistentVolumeClaim:
+            claimName: taskedin-be-uploads-pvc
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: taskedin-be-uploads-pv
+spec:
+  capacity:
+    storage: 1Gi
+  accessModes:
+    - ReadWriteOnce
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: local-path
+  hostPath:
+    path: /data/taskedin/uploads
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: taskedin-be-uploads-pvc
+  namespace: taskedin
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: local-path
+  resources:
+    requests:
+      storage: 1Gi
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: taskedin-be-svc
+  namespace: taskedin
+spec:
+  selector:
+    app: taskedin-be
+  ports:
+    - port: 3001
+      protocol: TCP
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: taskedin-be-ingress
+  namespace: taskedin
+  annotations:
+    cert-manager.io/cluster-issuer: production
+    acme.cert-manager.io/http01-edit-in-place: "true"
+    nginx.ingress.kubernetes.io/force-ssl-redirect: "false"
+    #nginx.ingress.kubernetes.io/rewrite-target: /
+  labels:
+    name: taskedin-be-ingress
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: taskedin-be.s-tech.digital
+      http:
+        paths:
+          - pathType: Prefix
+            path: /
+            backend:
+              service:
+                name: taskedin-be-svc
+                port:
+                  number: 3001
+  tls:
+    - hosts:
+        - taskedin-be.s-tech.digital
+      secretName: secret-tls-production

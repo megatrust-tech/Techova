@@ -1,0 +1,13 @@
+Add entity class
+
+Add DbSet<T> in AppDbContext
+
+Add IEntityTypeConfiguration<T> (recommended)
+
+Ensure ApplyConfigurationsFromAssembly(...)
+
+dotnet build
+
+dotnet ef migrations add <Name>
+
+dotnet ef database update
