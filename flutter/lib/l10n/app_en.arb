@@ -1,0 +1,109 @@
+{
+  "@@locale": "en",
+  
+  "appTitle": "TaskedIn",
+  
+  "welcomeBack": "Welcome back,",
+  "loading": "Loading...",
+  
+  "home": "Home",
+  "leaves": "Leaves",
+  "calendar": "Calendar",
+  "profile": "Profile",
+  
+  "login": "Login",
+  "signIn": "Sign In",
+  "email": "Email address",
+  "password": "Password",
+  "pleaseEnterEmail": "Please enter your email",
+  "pleaseEnterValidEmail": "Please enter a valid email",
+  "pleaseEnterPassword": "Please enter your password",
+  "passwordMinLength": "Password must be at least 8 characters",
+  
+  "theme": "Theme",
+  "darkMode": "Dark Mode",
+  "lightMode": "Light Mode",
+  "language": "Language",
+  "english": "English",
+  "arabic": "العربية",
+  "selectLanguage": "Select Language",
+  
+  "logout": "Logout",
+  "logoutConfirmation": "Are you sure you want to logout?",
+  "cancel": "Cancel",
+  
+  "comingSoon": "Coming Soon...",
+  "homeDashboard": "Home Dashboard",
+  
+  "notifications": "Notifications",
+  
+  "myLeaves": "My Leaves",
+  "applyLeave": "Apply Leave",
+  "teamCalendar": "Team Calendar",
+  "pending": "Pending",
+  "approved": "Approved",
+  "rejected": "Rejected",
+  "reason": "Reason",
+  "startDate": "Start Date",
+  "endDate": "End Date",
+  "submit": "Submit",
+  
+  "languageSetTo": "Language set to {language}",
+  "@languageSetTo": {
+    "placeholders": {
+      "language": {
+        "type": "String"
+      }
+    }
+  },
+
+  "newLeaveRequest": "New Leave Request",
+  "leaveType": "Leave Type",
+  "duration": "Duration",
+  "selectDates": "Select Dates",
+  "notes": "Notes",
+  "notesHint": "Add any additional notes...",
+  "attachment": "Attachment",
+  "uploadFile": "Upload File",
+  "submitRequest": "Submit Request",
+  "conflictDetected": "A conflict was detected",
+  "noConflict": "No conflicts found",
+  "days": "days",
+  "day": "day",
+  
+  "seeAll": "See All",
+  "leaveBalance": "Leave Balance",
+  "notifications": "Notifications",
+    "markAsRead": "Mark as Read",
+    "noNotificationsYet": "No notifications yet",
+    "notificationsEmptyHint": "When you receive notifications, they will appear here.",
+    "teamCalendar": "Team Calendar",
+      "today": "TODAY",
+      "tomorrow": "TOMORROW",
+      "nextWeek": "NEXT WEEK",
+      "fullTeamAvailable": "Full Team Available",
+
+      "leaveTypeLabel": "Type",
+      "leaveStartLabel": "Start",
+      "leaveEndLabel": "End",
+      "leaveNotesLabel": "Notes",
+
+      "leaveApproved": "Approved",
+      "leaveRejected": "Rejected",
+      "leavePending": "Pending",
+      "leaveCanceled": "Canceled",
+      "dayMon": "Mon",
+        "dayTue": "Tue",
+        "dayWed": "Wed",
+        "dayThu": "Thu",
+        "dayFri": "Fri",
+        "daySat": "Sat",
+        "daySun": "Sun",
+
+  "downloadAuditLogs": "Download Audit Logs",
+  "auditLogsDownloaded": "Audit logs downloaded successfully",
+  "failedToDownloadAuditLogs": "Failed to download audit logs",
+  "unauthorizedAccess": "Unauthorized access",
+  "noAuditLogsFound": "No audit logs found",
+  "retry": "Retry"
+}

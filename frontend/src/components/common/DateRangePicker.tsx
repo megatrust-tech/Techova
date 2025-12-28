@@ -15,6 +15,7 @@ type DateRangePickerProps = {
   weekStartsOn?: 0 | 1 | 2 | 3 | 4 | 5 | 6; // 6 = Saturday
   value?: SelectionValue;
   onChange?: (value: SelectionValue) => void;
+  minDate?: Date; // Minimum selectable date (dates before this are disabled)
 };
 
 type CalendarDay = {
@@ -144,6 +145,7 @@ export default function DateRangePicker({
   weekStartsOn = 6,
   value,
   onChange,
+  minDate,
 }: DateRangePickerProps) {
   const [cursorMonth, setCursorMonth] = useState<Date>(() => {
     const now = new Date();
@@ -164,6 +166,17 @@ export default function DateRangePicker({
   const daysLabel = useMemo(() => weekdayLabels(weekStartsOn), [weekStartsOn]);
 
   const handleSelect = (day: Date) => {
+    // Don't allow selecting dates before minDate
+    if (minDate) {
+      const minDateNormalized = new Date(minDate);
+      minDateNormalized.setHours(0, 0, 0, 0);
+      const dayNormalized = new Date(day);
+      dayNormalized.setHours(0, 0, 0, 0);
+      if (dayNormalized < minDateNormalized) {
+        return;
+      }
+    }
+
     const nextSelection = normalizeSelection(
       selectionMode,
       selection,
@@ -227,16 +240,27 @@ export default function DateRangePicker({
                     selection.start,
                     selection.end
                   );
+
+                  // Check if date is before minDate
+                  let isDisabled = false;
+                  if (minDate) {
+                    const minDateNormalized = new Date(minDate);
+                    minDateNormalized.setHours(0, 0, 0, 0);
+                    const dayNormalized = new Date(day.date);
+                    dayNormalized.setHours(0, 0, 0, 0);
+                    isDisabled = dayNormalized < minDateNormalized;
+                  }
+
                   return (
                     <button
                       type="button"
                       key={day.date.toISOString()}
-                      className={`day ${
-                        day.inCurrentMonth ? "" : "day--muted"
-                      } ${isSelected ? "day--selected" : ""} ${
-                        inRange ? "day--in-range" : ""
-                      }`}
+                      className={`day ${day.inCurrentMonth ? "" : "day--muted"
+                        } ${isSelected ? "day--selected" : ""} ${inRange ? "day--in-range" : ""
+                        } ${isDisabled ? "day--disabled" : ""}`}
                       onClick={() => handleSelect(day.date)}
+                      disabled={isDisabled}
+                      style={isDisabled ? { opacity: 0.3, cursor: "not-allowed" } : undefined}
                     >
                       {day.date.getDate()}
                     </button>

@@ -352,3 +352,48 @@ export async function authenticatedFetch(
 
   return response;
 }
+
+// User Search Result interface
+export interface UserSearchResult {
+  id: number;
+  firstName: string;
+  lastName: string;
+  email: string;
+  roleName: string;
+  departmentId: number;
+}
+
+// Search users by name or email (Admin only)
+export async function searchUsers(query: string): Promise<UserSearchResult[]> {
+  if (query.length < 2) {
+    return [];
+  }
+
+  const accessToken = await getAccessToken();
+  if (!accessToken) {
+    throw new Error("Not authenticated");
+  }
+
+  const response = await fetch(
+    `${API_BASE_URL}/v1/users/search?query=${encodeURIComponent(query)}`,
+    {
+      method: "GET",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${accessToken}`,
+      },
+    }
+  );
+
+  const data = await response.json();
+
+  if (!response.ok) {
+    if (response.status === 401 || response.status === 403) {
+      throw new Error("Unauthorized");
+    }
+    throw new Error(data.message || "Failed to search users");
+  }
+
+  return data;
+}
+

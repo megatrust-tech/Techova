@@ -1032,6 +1032,7 @@ export default function LeaveRequestPage() {
                         selectionMode="range"
                         weekStartsOn={6}
                         value={dateRange}
+                        minDate={new Date()}
                         onChange={(value) => {
                           setDateRange(value);
                           if (value.start && value.end) {
@@ -1069,7 +1070,7 @@ export default function LeaveRequestPage() {
                               dateRange.start,
                               dateRange.end
                             ) >
-                            getRemainingDaysForType(selectedLeaveType as number)
+                              getRemainingDaysForType(selectedLeaveType as number)
                               ? "var(--danger)"
                               : "var(--text-muted)",
                         }}
@@ -1083,12 +1084,12 @@ export default function LeaveRequestPage() {
                           getRemainingDaysForType(
                             selectedLeaveType as number
                           ) && (
-                          <span
-                            style={{ display: "block", marginTop: "0.25rem" }}
-                          >
-                            ⚠️ Requested days exceed available balance
-                          </span>
-                        )}
+                            <span
+                              style={{ display: "block", marginTop: "0.25rem" }}
+                            >
+                              ⚠️ Requested days exceed available balance
+                            </span>
+                          )}
                       </div>
                     )}
                   </div>

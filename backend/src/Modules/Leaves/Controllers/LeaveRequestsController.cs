@@ -1,4 +1,5 @@
 using System;
+using System.Text;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using System.Security.Claims;
@@ -116,12 +117,29 @@ public class LeaveRequestsController : ControllerBase
         return Ok(result);
     }
 
+    [HttpGet("calendar")]
+    public async Task<IActionResult> GetCalendarData([FromQuery] DateTime? startDate, [FromQuery] DateTime? endDate)
+    {
+        var userId = GetCurrentUserId();
+        var result = await _leaveService.GetCalendarDataAsync(userId, startDate, endDate);
+        return Ok(result);
+    }
+
     [HttpGet("pending-approval")]
     [Authorize(Roles = "Manager,HR")]
     public async Task<IActionResult> GetPendingApproval([FromQuery] string? status, [FromQuery] PaginationDto pagination)
     {
         var userId = GetCurrentUserId();
         var result = await _leaveService.GetTeamRequestsAsync(userId, status, pagination);
+        return Ok(result);
+    }
+
+    [HttpGet("pending-approval-count")]
+    [Authorize(Roles = "Manager,HR,Admin")]
+    public async Task<IActionResult> GetPendingApprovalCount()
+    {
+        var userId = GetCurrentUserId();
+        var result = await _leaveService.GetPendingApprovalCountAsync(userId);
         return Ok(result);
     }
 
@@ -182,6 +200,50 @@ public class LeaveRequestsController : ControllerBase
         }
     }
 
+    [HttpGet("audit-logs/download")]
+    [Authorize(Roles = "Manager,HR")]
+    public async Task<IActionResult> DownloadAuditLogs()
+    {
+        try
+        {
+            var userId = GetCurrentUserId();
+            var logs = await _leaveService.GetAuditLogsForDownloadAsync(userId);
+
+            var csv = GenerateCsv(logs);
+            var fileName = $"leave_audit_logs_{DateTime.UtcNow:yyyyMMdd_HHmmss}.csv";
+
+            return File(Encoding.UTF8.GetBytes(csv), "text/csv", fileName);
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            return Forbid(ex.Message);
+        }
+        catch (Exception ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
+    }
+
+    private static string GenerateCsv(IEnumerable<AuditLogDownloadDto> logs)
+    {
+        var sb = new StringBuilder();
+        // Header
+        sb.AppendLine("Department,Manager,Request ID,Employee,Leave Type,Start Date,End Date,Days,Status,Action,Action Date,Comment");
+
+        foreach (var log in logs)
+        {
+            sb.AppendLine($"\"{log.DepartmentName}\",\"{log.ManagerName}\",{log.RequestId},\"{log.EmployeeName}\",\"{log.LeaveType}\",{log.StartDate:yyyy-MM-dd},{log.EndDate:yyyy-MM-dd},{log.NumberOfDays},\"{log.CurrentStatus}\",\"{log.ActionTaken}\",{log.ActionDate:yyyy-MM-dd HH:mm},\"{EscapeCsv(log.Comment)}\"");
+        }
+
+        return sb.ToString();
+    }
+
+    private static string EscapeCsv(string? value)
+    {
+        if (string.IsNullOrEmpty(value)) return "";
+        return value.Replace("\"", "\"\"");
+    }
+
     [HttpGet("leave-types")]
     public IActionResult GetAllLeaveTypes()
     {
@@ -234,6 +296,38 @@ public class LeaveRequestsController : ControllerBase
     {
         await _leaveService.UpdateLeaveSettingsAsync(settings);
         return Ok(new { message = "Settings updated successfully." });
+    }
+
+    [HttpGet("users-without-balances")]
+    [Authorize(Roles = "Admin")]
+    public async Task<IActionResult> GetUsersWithoutBalances([FromQuery] PaginationDto pagination, [FromQuery] int? year = null)
+    {
+        var users = await _leaveService.GetUsersWithoutBalancesAsync(pagination, year);
+        return Ok(users);
+    }
+
+    [HttpPost("initialize-balances")]
+    [Authorize(Roles = "Admin")]
+    public async Task<IActionResult> InitializeBalances([FromBody] InitializeBalancesRequestDto request)
+    {
+        var result = await _leaveService.InitializeBalancesAsync(request);
+        return Ok(result);
+    }
+
+    [HttpGet("user-balances")]
+    [Authorize(Roles = "Admin")]
+    public async Task<IActionResult> GetAllUsersWithBalances([FromQuery] PaginationDto pagination, [FromQuery] int? year = null)
+    {
+        var result = await _leaveService.GetAllUsersWithBalancesAsync(pagination, year);
+        return Ok(result);
+    }
+
+    [HttpPut("update-balances")]
+    [Authorize(Roles = "Admin")]
+    public async Task<IActionResult> UpdateBalances([FromBody] UpdateBalancesRequestDto request)
+    {
+        var result = await _leaveService.UpdateBalancesAsync(request);
+        return Ok(result);
     }
 
     [HttpGet("{id}/attachment")]

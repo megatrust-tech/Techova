@@ -45,14 +45,12 @@ public class SeedDatabase
             .AddEnvironmentVariables()
             .Build();
 
-        // Build connection string using same logic as Program.cs
-        // Priority: 1) DB_CONNECTION_STRING env var, 2) Individual DB_* env vars, 3) appsettings.json
+        // Build connection string
         var connectionString = BuildConnectionString(configuration);
 
         if (string.IsNullOrEmpty(connectionString))
         {
             Console.WriteLine("ERROR: Connection string not found!");
-            Console.WriteLine("Set DB_CONNECTION_STRING (full string) or individual variables (DB_SERVER, DB_PORT, DB_NAME, DB_USER, DB_PASSWORD)");
             return;
         }
 
@@ -63,14 +61,12 @@ public class SeedDatabase
 
         try
         {
-            // Ensure database is cleaned
+            // Ensure database is cleaned and recreated to guarantee schema integrity
+            // This fixes the issue where SQL DELETE FROM might leave the schema in a bad state
+            Console.WriteLine("Dropping database if exists...");
             await context.Database.EnsureDeletedAsync();
-            Console.WriteLine("✓ Old database deleted");
-
-            // CRITICAL FIX: Use MigrateAsync instead of EnsureCreatedAsync
-            // EnsureCreatedAsync creates tables but ignores Migrations History, causing future updates to fail.
-            // MigrateAsync properly applies all migrations and records them in __EFMigrationsHistory.
-            Console.WriteLine("Applying migrations...");
+            
+            Console.WriteLine("Applying migrations and creating database...");
             await context.Database.MigrateAsync();
             Console.WriteLine("✓ Database created and migrations applied successfully");
 
@@ -78,16 +74,16 @@ public class SeedDatabase
             var roles = await EnsureRolesAsync(context);
             Console.WriteLine($"✓ Roles ensured ({roles.Count} roles)");
 
-            // Step 2: Create Departments (we'll just use IDs 1-500, no actual Department table)
+            // Step 2: Create Departments (Logical IDs 1-100)
             Console.WriteLine($"✓ Using {TOTAL_DEPARTMENTS} department IDs (1-{TOTAL_DEPARTMENTS})");
 
             // Step 3: Create Users
             await CreateUsersAsync(context, roles);
             Console.WriteLine($"✓ Created {TOTAL_USERS:N0} users");
 
-            // Step 4: Assign Managers
+            // Step 4: Assign Managers (Chain of Command)
             await AssignManagersAsync(context);
-            Console.WriteLine("✓ Assigned managers to users");
+            Console.WriteLine("✓ Assigned managers to users (Chain of Command built)");
 
             // Step 5: Create Leave Balances
             await CreateLeaveBalancesAsync(context);
@@ -99,8 +95,6 @@ public class SeedDatabase
 
             Console.WriteLine();
             Console.WriteLine("=== Seeding Complete ===");
-            Console.WriteLine($"Total Users: {TOTAL_USERS:N0}");
-            Console.WriteLine($"Total Departments: {TOTAL_DEPARTMENTS}");
         }
         catch (Exception ex)
         {
@@ -111,21 +105,15 @@ public class SeedDatabase
 
     private static string? BuildConnectionString(IConfiguration configuration)
     {
-        // Option 1: Full connection string from environment variable
         var fullConnectionString = Environment.GetEnvironmentVariable("DB_CONNECTION_STRING");
-        if (!string.IsNullOrEmpty(fullConnectionString))
-        {
-            return fullConnectionString;
-        }
+        if (!string.IsNullOrEmpty(fullConnectionString)) return fullConnectionString;
 
-        // Option 2: Build from individual components
         var server = Environment.GetEnvironmentVariable("DB_SERVER");
         var port = Environment.GetEnvironmentVariable("DB_PORT");
         var database = Environment.GetEnvironmentVariable("DB_NAME");
         var userId = Environment.GetEnvironmentVariable("DB_USER");
         var password = Environment.GetEnvironmentVariable("DB_PASSWORD");
 
-        // If any individual component is set, build the connection string
         if (!string.IsNullOrEmpty(server) || !string.IsNullOrEmpty(database) ||
             !string.IsNullOrEmpty(userId) || !string.IsNullOrEmpty(password))
         {
@@ -135,17 +123,11 @@ public class SeedDatabase
             userId ??= "sa";
 
             var connectionString = $"Server={server},{port};Database={database};User Id={userId};";
-
-            if (!string.IsNullOrEmpty(password))
-            {
-                connectionString += $"Password={password};";
-            }
-
+            if (!string.IsNullOrEmpty(password)) connectionString += $"Password={password};";
             connectionString += "TrustServerCertificate=True";
             return connectionString;
         }
 
-        // Option 3: Fall back to appsettings.json
         return configuration.GetConnectionString("DefaultConnection");
     }
 
@@ -171,121 +153,50 @@ public class SeedDatabase
             }
             roles[roleName] = role;
         }
-
         return roles;
     }
 
     private static async Task CreateUsersAsync(AppDbContext context, Dictionary<string, Role> roles)
     {
-        var random = new Random(42); // Fixed seed for reproducibility
-        var currentYear = DateTime.UtcNow.Year;
+        var random = new Random(42);
         var now = DateTime.UtcNow;
 
-        // Calculate user counts per role
         var adminCount = (int)(TOTAL_USERS * ADMIN_PERCENT / 100);
         var hrCount = (int)(TOTAL_USERS * HR_PERCENT / 100);
         var managerCount = (int)(TOTAL_USERS * MANAGER_PERCENT / 100);
         var employeeCount = TOTAL_USERS - adminCount - hrCount - managerCount;
 
-        Console.WriteLine($"  Admin: {adminCount:N0}");
-        Console.WriteLine($"  HR: {hrCount:N0}");
-        Console.WriteLine($"  Manager: {managerCount:N0}");
-        Console.WriteLine($"  Employee: {employeeCount:N0}");
+        Console.WriteLine($"  Admin: {adminCount:N0}, HR: {hrCount:N0}, Manager: {managerCount:N0}, Employee: {employeeCount:N0}");
 
         var userCounter = 0;
         var batch = new List<User>();
 
+        // Helper to process batches
+        async Task AddUserToBatch(User u) {
+            batch.Add(u);
+            if (batch.Count >= BATCH_SIZE) {
+                await SaveBatchAsync(context, batch);
+                batch.Clear();
+                if (userCounter % 10000 == 0) Console.Write($"\r  Created {userCounter:N0} users...");
+            }
+        }
+
         // Create Admins
-        Console.WriteLine("  Creating Admins...");
-        for (int i = 0; i < adminCount; i++)
-        {
-            userCounter++;
-            var user = CreateUser(userCounter, "Admin", roles["Admin"], random, now);
-            batch.Add(user);
-
-            if (batch.Count >= BATCH_SIZE)
-            {
-                await SaveBatchAsync(context, batch);
-                batch.Clear();
-                Console.WriteLine($"  Created {userCounter:N0} users...");
-            }
-        }
-        if (batch.Any())
-        {
-            await SaveBatchAsync(context, batch);
-            batch.Clear();
-            Console.WriteLine($"  Created {userCounter:N0} users...");
-        }
-
+        for (int i = 0; i < adminCount; i++) await AddUserToBatch(CreateUser(++userCounter, "Admin", roles["Admin"], random, now));
+        
         // Create HR
-        Console.WriteLine("  Creating HR users...");
-        for (int i = 0; i < hrCount; i++)
-        {
-            userCounter++;
-            var user = CreateUser(userCounter, "HR", roles["HR"], random, now);
-            batch.Add(user);
-
-            if (batch.Count >= BATCH_SIZE)
-            {
-                await SaveBatchAsync(context, batch);
-                batch.Clear();
-                Console.WriteLine($"  Created {userCounter:N0} users...");
-            }
-        }
-        if (batch.Any())
-        {
-            await SaveBatchAsync(context, batch);
-            batch.Clear();
-            Console.WriteLine($"  Created {userCounter:N0} users...");
-        }
-
+        for (int i = 0; i < hrCount; i++) await AddUserToBatch(CreateUser(++userCounter, "HR", roles["HR"], random, now));
+        
         // Create Managers
-        Console.WriteLine("  Creating Managers...");
-        for (int i = 0; i < managerCount; i++)
-        {
-            userCounter++;
-            var user = CreateUser(userCounter, "Manager", roles["Manager"], random, now);
-            batch.Add(user);
-
-            if (batch.Count >= BATCH_SIZE)
-            {
-                await SaveBatchAsync(context, batch);
-                batch.Clear();
-                Console.WriteLine($"  Created {userCounter:N0} users...");
-            }
-        }
-        if (batch.Any())
-        {
-            await SaveBatchAsync(context, batch);
-            batch.Clear();
-            Console.WriteLine($"  Created {userCounter:N0} users...");
-        }
+        for (int i = 0; i < managerCount; i++) await AddUserToBatch(CreateUser(++userCounter, "Manager", roles["Manager"], random, now));
 
         // Create Employees
-        Console.WriteLine("  Creating Employees (this will take a while for 472,000 users)...");
-        var employeeStartTime = DateTime.UtcNow;
-        for (int i = 0; i < employeeCount; i++)
-        {
-            userCounter++;
-            var user = CreateUser(userCounter, "Employee", roles["Employee"], random, now);
-            batch.Add(user);
+        Console.WriteLine("\n  Creating Employees...");
+        for (int i = 0; i < employeeCount; i++) await AddUserToBatch(CreateUser(++userCounter, "Employee", roles["Employee"], random, now));
 
-            if (batch.Count >= BATCH_SIZE)
-            {
-                await SaveBatchAsync(context, batch);
-                batch.Clear();
-                var elapsed = (DateTime.UtcNow - employeeStartTime).TotalSeconds;
-                var rate = userCounter / elapsed;
-                var remaining = (TOTAL_USERS - userCounter) / rate;
-                Console.WriteLine($"  Created {userCounter:N0} users... ({rate:F0} users/sec, ~{remaining / 60:F1} min remaining)");
-            }
-        }
-
-        // Save remaining users
-        if (batch.Any())
-        {
-            await SaveBatchAsync(context, batch);
-        }
+        // Save remaining
+        if (batch.Any()) await SaveBatchAsync(context, batch);
+        Console.WriteLine($"\n  Finished creating {userCounter:N0} users.");
     }
 
     private static User CreateUser(int userNumber, string roleName, Role role, Random random, DateTime now)
@@ -295,7 +206,7 @@ public class SeedDatabase
         var email = $"user{userNumber}_{roleName.ToLower()}@taskedinbe.com";
         var password = $"user{userNumber}_{roleName.ToLower()}";
 
-        // Use lower workFactor (4) for faster seeding - still secure but much faster for bulk operations
+        // WorkFactor 4 is faster for seeding
         var passwordHash = BCrypt.Net.BCrypt.HashPassword(password, workFactor: 4);
 
         return new User
@@ -316,146 +227,112 @@ public class SeedDatabase
     {
         context.Users.AddRange(batch);
         await context.SaveChangesAsync();
-        context.ChangeTracker.Clear(); // Clear tracking to free memory
+        context.ChangeTracker.Clear();
     }
 
     private static async Task AssignManagersAsync(AppDbContext context)
     {
-        Console.WriteLine("  Assigning managers...");
-
-        // Get all managers (users with Manager role)
-        var managers = await context.Users
-            .Include(u => u.Role)
-            .Where(u => u.Role.Name == "Manager")
-            .OrderBy(u => u.Id)
-            .ToListAsync();
-
-        if (!managers.Any())
-        {
-            Console.WriteLine("  WARNING: No managers found to assign!");
-            return;
-        }
-
-        // Get all employees and non-manager users who should have managers
-        var employees = await context.Users
-            .Include(u => u.Role)
-            .Where(u => u.Role.Name != "Admin" && u.Role.Name != "Manager" && u.ManagerId == null)
-            .OrderBy(u => u.Id)
-            .ToListAsync();
-
+        Console.WriteLine("  Assigning managers (Building Chain of Command)...");
         var random = new Random(42);
-        var managerIndex = 0;
-        var batch = new List<User>();
 
-        foreach (var employee in employees)
+        for (int deptId = 1; deptId <= TOTAL_DEPARTMENTS; deptId++)
         {
-            // Assign a manager (round-robin through managers)
-            var manager = managers[managerIndex % managers.Count];
-            employee.ManagerId = manager.Id;
-            batch.Add(employee);
-            managerIndex++;
+            // 1. Get Managers for this department
+            var managers = await context.Users
+                .Include(u => u.Role)
+                .Where(u => u.DepartmentId == deptId && u.Role.Name == "Manager")
+                .ToListAsync();
 
-            if (batch.Count >= BATCH_SIZE)
+            if (!managers.Any()) continue;
+
+            // 2. Build Hierarchy
+            // Shuffle to randomize assignments
+            managers = managers.OrderBy(x => random.Next()).ToList();
+
+            // Tier 1: Department Head (1 Person)
+            var deptHead = managers.First();
+            
+            // Tier 2: Senior Managers (~20% of remaining managers)
+            var remainingManagers = managers.Skip(1).ToList();
+            var seniorCount = (int)Math.Ceiling(remainingManagers.Count * 0.2);
+            var seniorManagers = remainingManagers.Take(seniorCount).ToList();
+
+            // Tier 3: Team Leads (Everyone else)
+            var teamLeads = remainingManagers.Skip(seniorCount).ToList();
+
+            var usersToUpdate = new List<User>();
+
+            // Assign Tier 2 -> Tier 1
+            foreach (var sm in seniorManagers)
             {
-                context.Users.UpdateRange(batch);
-                await context.SaveChangesAsync();
-                batch.Clear();
-                context.ChangeTracker.Clear();
-                Console.WriteLine($"  Assigned managers to {managerIndex:N0} users...");
+                sm.ManagerId = deptHead.Id;
+                usersToUpdate.Add(sm);
             }
+
+            // Assign Tier 3 -> Tier 2 (or Tier 1 if no Tier 2)
+            foreach (var tl in teamLeads)
+            {
+                if (seniorManagers.Any())
+                    tl.ManagerId = seniorManagers[random.Next(seniorManagers.Count)].Id;
+                else
+                    tl.ManagerId = deptHead.Id;
+                
+                usersToUpdate.Add(tl);
+            }
+
+            // 3. Assign Employees
+            var employees = await context.Users
+                .Include(u => u.Role)
+                .Where(u => u.DepartmentId == deptId && 
+                       u.Role.Name == "Employee" && 
+                       u.ManagerId == null)
+                .ToListAsync();
+
+            if (employees.Any())
+            {
+                // Pool of supervisors: Prefer Team Leads -> Senior Managers -> Dept Head
+                var supervisorPool = teamLeads.Any() ? teamLeads :
+                                     seniorManagers.Any() ? seniorManagers :
+                                     new List<User> { deptHead };
+
+                int poolIndex = 0;
+                foreach (var emp in employees)
+                {
+                    emp.ManagerId = supervisorPool[poolIndex % supervisorPool.Count].Id;
+                    usersToUpdate.Add(emp);
+                    poolIndex++;
+                }
+            }
+
+            if (usersToUpdate.Any())
+            {
+                context.Users.UpdateRange(usersToUpdate);
+                await context.SaveChangesAsync();
+                context.ChangeTracker.Clear();
+            }
+
+            if (deptId % 10 == 0) Console.Write($"\r  Processed Department {deptId}/{TOTAL_DEPARTMENTS}...");
         }
-
-        // Update remaining
-        if (batch.Any())
-        {
-            context.Users.UpdateRange(batch);
-            await context.SaveChangesAsync();
-        }
-
-        // Some managers should also have managers (hierarchy)
-        var managersWithoutManagers = await context.Users
-            .Include(u => u.Role)
-            .Where(u => u.Role.Name == "Manager" && u.ManagerId == null)
-            .OrderBy(u => u.Id)
-            .Skip(managers.Count / 10) // 10% of managers have managers
-            .ToListAsync();
-
-        var seniorManagers = managers.Take(managersWithoutManagers.Count).ToList();
-        batch.Clear();
-
-        for (int i = 0; i < managersWithoutManagers.Count && i < seniorManagers.Count; i++)
-        {
-            managersWithoutManagers[i].ManagerId = seniorManagers[i].Id;
-            batch.Add(managersWithoutManagers[i]);
-        }
-
-        if (batch.Any())
-        {
-            context.Users.UpdateRange(batch);
-            await context.SaveChangesAsync();
-        }
+        Console.WriteLine("\n  Manager assignment complete.");
     }
 
     private static async Task CreateLeaveBalancesAsync(AppDbContext context)
     {
         Console.WriteLine("  Creating leave balances...");
         var currentYear = DateTime.UtcNow.Year;
-
-        var allUsers = await context.Users
-            .Select(u => u.Id)
-            .ToListAsync();
-
-        var existingBalances = await context.LeaveBalances
-            .Where(b => b.Year == currentYear)
-            .Select(b => b.EmployeeId)
-            .Distinct()
-            .ToListAsync();
-
-        var usersNeedingBalances = allUsers.Except(existingBalances).ToList();
-        var batch = new List<LeaveBalance>();
-
-        // Get leave type configurations (same logic as UserService)
-        var policies = await context.LeaveTypeConfigs.ToListAsync();
-        var leaveTypes = Enum.GetValues(typeof(LeaveType)).Cast<LeaveType>().ToList();
         var now = DateTime.UtcNow;
 
-        foreach (var userId in usersNeedingBalances)
+        // Simplified logic: Give everyone 21 Annual and 7 Sick days
+        // Fetching IDs only to save memory
+        var userIds = await context.Users.Select(u => u.Id).ToListAsync();
+        
+        var batch = new List<LeaveBalance>();
+        int count = 0;
+
+        foreach (var userId in userIds)
         {
-            foreach (var leaveType in leaveTypes)
-            {
-                int totalDays;
-
-                // Check if there's a policy for this leave type (same logic as UserService)
-                if (policies.Any())
-                {
-                    var policy = policies.FirstOrDefault(p => p.LeaveTypeId == (int)leaveType);
-                    if (policy != null)
-                    {
-                        totalDays = policy.DefaultBalance;
-                    }
-                    else
-                    {
-                        // Fallback if policy doesn't exist for this type
-                        totalDays = leaveType == LeaveType.Annual ? 21 : 7;
-                    }
-                }
-                else
-                {
-                    // Fallback if no policies exist (same as UserService)
-                    totalDays = leaveType == LeaveType.Annual ? 21 : 7;
-                }
-
-                batch.Add(new LeaveBalance
-                {
-                    EmployeeId = userId,
-                    Type = leaveType,
-                    Year = currentYear,
-                    TotalDays = totalDays,
-                    UsedDays = 0,
-                    CreatedAt = now,
-                    UpdatedAt = now
-                });
-            }
+            batch.Add(new LeaveBalance { EmployeeId = userId, Type = LeaveType.Annual, Year = currentYear, TotalDays = 21, UsedDays = 0, CreatedAt = now, UpdatedAt = now });
+            batch.Add(new LeaveBalance { EmployeeId = userId, Type = LeaveType.Sick, Year = currentYear, TotalDays = 7, UsedDays = 0, CreatedAt = now, UpdatedAt = now });
 
             if (batch.Count >= BATCH_SIZE)
             {
@@ -463,209 +340,89 @@ public class SeedDatabase
                 await context.SaveChangesAsync();
                 batch.Clear();
                 context.ChangeTracker.Clear();
-                Console.WriteLine($"  Created balances for {usersNeedingBalances.IndexOf(userId) + 1:N0} users...");
+                count += BATCH_SIZE / 2;
+                if (count % 50000 == 0) Console.Write($"\r  Created balances for {count:N0} users...");
             }
         }
-
         if (batch.Any())
         {
             context.LeaveBalances.AddRange(batch);
             await context.SaveChangesAsync();
         }
+        Console.WriteLine("\n  Leave balances created.");
     }
 
     private static async Task CreateRandomLeavesAsync(AppDbContext context)
     {
         Console.WriteLine("  Creating random leave requests...");
-
-        // We need users who have managers to create valid leave flows
-        // For performance, we'll select a subset of users to have leaves (e.g. 30%)
-        // or just iterate all, but assign randomly.
+        
+        // Only fetch users who have managers
         var usersWithManagers = await context.Users
             .Where(u => u.ManagerId != null)
             .Select(u => new { u.Id, u.ManagerId })
             .ToListAsync();
 
-        if (!usersWithManagers.Any())
-        {
-            Console.WriteLine("  No users with managers found. Skipping leave generation.");
-            return;
-        }
+        if (!usersWithManagers.Any()) return;
 
         var random = new Random(42);
         var batch = new List<LeaveRequest>();
-        var generatedCount = 0;
         var now = DateTime.UtcNow;
-
-        // Sample notes for realism
-        var sickNotes = new[] { "Not feeling well", "Flu symptoms", "Doctor appointment", "Migraine", "Food poisoning", "Fever", "I'm so sick", "Need rest" };
-        var annualNotes = new[] { "Summer vacation", "Family trip", "Personal time off", "Traveling abroad", "Wedding attendance", "Burnout recovery", "Handling personal matters" };
-        var otherNotes = new[] { "Emergency", "Personal reasons", "Unforeseen circumstances" };
-
-        // Group users by manager for creating conflicts
-        var usersByManager = usersWithManagers
-            .GroupBy(u => u.ManagerId)
-            .Where(g => g.Count() >= 2) // Only managers with at least 2 employees
-            .ToList();
-
-        // Create conflicting leaves first (same manager, same date, different employees)
-        Console.WriteLine("  Creating conflicting leave requests (same manager, same date)...");
-        var conflictDates = new List<DateTime>();
-        var conflictCount = 0;
-        var maxConflicts = Math.Min(50, usersByManager.Count); // Create up to 50 conflict scenarios
-
-        for (int i = 0; i < maxConflicts && i < usersByManager.Count; i++)
+        
+        // 1. Create Conflicts (Same Manager, Same Date)
+        var usersByManager = usersWithManagers.GroupBy(u => u.ManagerId).Where(g => g.Count() >= 2).ToList();
+        int conflictCount = 0;
+        
+        // Create 50 conflict scenarios
+        for (int i = 0; i < 50 && i < usersByManager.Count; i++)
         {
-            var managerGroup = usersByManager[i];
-            var employees = managerGroup.ToList();
-            
-            if (employees.Count < 2) continue;
+            var group = usersByManager[i];
+            var employees = group.OrderBy(x => random.Next()).Take(3).ToList();
+            var conflictDate = now.AddDays(random.Next(1, 100));
 
-            // Pick 2-4 employees from this manager's team
-            var selectedEmployees = employees
-                .OrderBy(x => random.Next())
-                .Take(random.Next(2, Math.Min(5, employees.Count + 1)))
-                .ToList();
-
-            // Generate a conflict date (same date for all selected employees)
-            int month = random.Next(1, 13);
-            int day = random.Next(1, 28);
-            var conflictDate = new DateTime(now.Year, month, day);
-            conflictDates.Add(conflictDate);
-            var numberOfDays = random.Next(1, 4); // 1 to 3 days
-            var endDate = conflictDate.AddDays(numberOfDays);
-
-            // Determine Leave Type
-            var leaveTypes = Enum.GetValues(typeof(LeaveType));
-            var leaveType = (LeaveType)leaveTypes.GetValue(random.Next(leaveTypes.Length))!;
-
-            // Generate Note based on Type
-            string note;
-            if (leaveType.ToString().Contains("Sick"))
-                note = sickNotes[random.Next(sickNotes.Length)];
-            else if (leaveType.ToString().Contains("Annual"))
-                note = annualNotes[random.Next(annualNotes.Length)];
-            else
-                note = otherNotes[random.Next(otherNotes.Length)];
-
-            // Create leave requests for each selected employee with the same date
-            foreach (var employee in selectedEmployees)
+            foreach (var emp in employees)
             {
-                // Mix of PendingManager and PendingHR for conflicts
-                var status = random.NextDouble() < 0.5 ? LeaveStatus.PendingManager : LeaveStatus.PendingHR;
-
-                var leaveRequest = new LeaveRequest
-                {
-                    EmployeeId = employee.Id,
-                    ManagerId = employee.ManagerId!.Value,
-                    Type = leaveType,
-                    StartDate = conflictDate,
-                    EndDate = endDate,
-                    NumberOfDays = numberOfDays,
-                    Status = status,
-                    Notes = $"{note} (Conflict scenario)",
-                    AttachmentPath = null,
-                    CreatedAt = now.AddDays(-random.Next(1, 30)),
-                    UpdatedAt = now
-                };
-
-                batch.Add(leaveRequest);
-                generatedCount++;
-                conflictCount++;
+                batch.Add(new LeaveRequest {
+                    EmployeeId = emp.Id, ManagerId = emp.ManagerId!.Value, Type = LeaveType.Annual,
+                    StartDate = conflictDate, EndDate = conflictDate.AddDays(2), NumberOfDays = 2,
+                    Status = LeaveStatus.PendingManager, Notes = "Conflict Test", CreatedAt = now, UpdatedAt = now
+                });
             }
-
-            if (batch.Count >= BATCH_SIZE)
-            {
-                await context.LeaveRequests.AddRangeAsync(batch);
-                await context.SaveChangesAsync();
-                batch.Clear();
-                context.ChangeTracker.Clear();
-                Console.WriteLine($"  Generated {generatedCount:N0} leave requests (including {conflictCount} conflicts)...");
-            }
+            conflictCount++;
         }
+        
+        await context.LeaveRequests.AddRangeAsync(batch);
+        await context.SaveChangesAsync();
+        batch.Clear();
+        Console.WriteLine($"  Created {conflictCount} conflict scenarios.");
 
-        Console.WriteLine($"  Created {conflictCount} conflicting leave requests");
-
-        // Now create regular leave requests with proper status distribution
+        // 2. Regular Leaves
+        // 30% of users request leave
         foreach (var user in usersWithManagers)
         {
-            // 60% chance a user has no leave requests, 40% chance they have 1-3 requests
-            if (random.NextDouble() > 0.4) continue;
+            if (random.NextDouble() > 0.3) continue;
 
-            int leavesToCreate = random.Next(1, 4); // 1 to 3 leaves
+            int days = random.Next(1, 5);
+            var start = now.AddDays(random.Next(-30, 30));
+            
+            // Random Status
+            var p = random.NextDouble();
+            var status = p < 0.1 ? LeaveStatus.Cancelled : p < 0.2 ? LeaveStatus.Rejected : p < 0.4 ? LeaveStatus.Approved : p < 0.7 ? LeaveStatus.PendingHR : LeaveStatus.PendingManager;
 
-            for (int i = 0; i < leavesToCreate; i++)
-            {
-                // Determine Leave Type
-                var leaveTypes = Enum.GetValues(typeof(LeaveType));
-                var leaveType = (LeaveType)leaveTypes.GetValue(random.Next(leaveTypes.Length))!;
+            batch.Add(new LeaveRequest {
+                EmployeeId = user.Id, ManagerId = user.ManagerId!.Value, Type = LeaveType.Annual,
+                StartDate = start, EndDate = start.AddDays(days), NumberOfDays = days,
+                Status = status, Notes = "Regular Leave", CreatedAt = now, UpdatedAt = now
+            });
 
-                // Generate Note based on Type
-                string note;
-                if (leaveType.ToString().Contains("Sick"))
-                    note = sickNotes[random.Next(sickNotes.Length)];
-                else if (leaveType.ToString().Contains("Annual"))
-                    note = annualNotes[random.Next(annualNotes.Length)];
-                else
-                    note = otherNotes[random.Next(otherNotes.Length)];
-
-                // Generate Dates (randomly in the current year, past or future)
-                int month = random.Next(1, 13);
-                int day = random.Next(1, 28); // Safe day range
-                var startDate = new DateTime(now.Year, month, day);
-                var numberOfDays = random.Next(1, 6); // 1 to 5 days
-                var endDate = startDate.AddDays(numberOfDays);
-
-                // Determine Status - Focus on PendingManager and PendingHR
-                // Distribution: 
-                // 10% Cancelled
-                // 10% Rejected
-                // 20% Approved
-                // 30% PendingHR
-                // 30% PendingManager
-                var statusRoll = random.NextDouble();
-                LeaveStatus status;
-
-                if (statusRoll < 0.1) status = LeaveStatus.Cancelled;
-                else if (statusRoll < 0.2) status = LeaveStatus.Rejected;
-                else if (statusRoll < 0.4) status = LeaveStatus.Approved;
-                else if (statusRoll < 0.7) status = LeaveStatus.PendingHR;
-                else status = LeaveStatus.PendingManager;
-
-                var leaveRequest = new LeaveRequest
-                {
-                    EmployeeId = user.Id,
-                    ManagerId = user.ManagerId!.Value,
-                    Type = leaveType,
-                    StartDate = startDate,
-                    EndDate = endDate,
-                    NumberOfDays = numberOfDays,
-                    Status = status,
-                    Notes = note,
-                    AttachmentPath = null,
-                    CreatedAt = now.AddDays(-random.Next(1, 30)), // Created slightly before now
-                    UpdatedAt = now
-                };
-
-                batch.Add(leaveRequest);
-                generatedCount++;
-            }
-
-            if (batch.Count >= BATCH_SIZE)
-            {
+            if (batch.Count >= BATCH_SIZE) {
                 await context.LeaveRequests.AddRangeAsync(batch);
                 await context.SaveChangesAsync();
                 batch.Clear();
                 context.ChangeTracker.Clear();
-                Console.WriteLine($"  Generated {generatedCount:N0} leave requests...");
             }
         }
-
-        if (batch.Any())
-        {
-            await context.LeaveRequests.AddRangeAsync(batch);
-            await context.SaveChangesAsync();
-            Console.WriteLine($"  Generated {generatedCount:N0} leave requests...");
-        }
+        if (batch.Any()) await context.LeaveRequests.AddRangeAsync(batch);
+        
+        Console.WriteLine("  Random leaves created.");
     }
 }

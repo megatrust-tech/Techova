@@ -142,5 +142,34 @@ namespace taskedin_be.src.Modules.Users.Services
                 await _context.SaveChangesAsync();
             }
         }
+
+        public async Task<List<UserSearchResultDto>> SearchUsersAsync(string query)
+        {
+            if (string.IsNullOrWhiteSpace(query) || query.Length < 2)
+                return new List<UserSearchResultDto>();
+
+            var searchTerm = query.ToLower().Trim();
+
+            var users = await _context.Users
+                .Include(u => u.Role)
+                .Where(u => 
+                    u.FirstName.ToLower().Contains(searchTerm) ||
+                    u.LastName.ToLower().Contains(searchTerm) ||
+                    u.Email.ToLower().Contains(searchTerm) ||
+                    (u.FirstName + " " + u.LastName).ToLower().Contains(searchTerm))
+                .Take(20) // Limit results
+                .Select(u => new UserSearchResultDto
+                {
+                    Id = u.Id,
+                    FirstName = u.FirstName,
+                    LastName = u.LastName,
+                    Email = u.Email,
+                    RoleName = u.Role.Name,
+                    DepartmentId = u.DepartmentId
+                })
+                .ToListAsync();
+
+            return users;
+        }
     }
 }

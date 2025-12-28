@@ -193,7 +193,7 @@ public class NotificationServiceTests
         var realFirebaseService = new FirebaseNotificationService(config);
 
         // 3. Define the Token from your DB
-        string realDeviceToken = "elxcivTXSWKXepX5DtPUqI:APA91bEfFCCbM96cp8TcmaKBIdbDunSM-nYWNxJTd-l_DSxjD27N13e07Bc7mjoCXx5GcIV0nv8mTgnqzYUhWPYnoXhmOvfqJNIgnBNFdfd-A7XwwQx4LBk";
+        string realDeviceToken = "cj6klVvUSEOj0BX1YJ8zTy:APA91bEri6S_THVXlMRL45LIIO_giswkw419xYp3Bip_5co0HvOxYVbVVbl1M_IbzSv3iVmfq6AbHetxrhNJc6cU4Oayiy9l61nOHUFeEI2dALShSynRWB0";
 
         var tokens = new List<string> { realDeviceToken };
 
@@ -215,6 +215,73 @@ public class NotificationServiceTests
         {
             // This will fail the test and print the real error (e.g., 404, 401, or Auth errors)
             Assert.Fail($"Firebase Integration Failed: {ex.Message}");
+        }
+    }
+
+    [Fact]
+    public async Task Integration_SendDirect_WithMessageId()
+    {
+        // Direct test using Firebase SDK to get actual message ID
+        var config = new ConfigurationBuilder()
+            .SetBasePath(Directory.GetCurrentDirectory())
+            .AddJsonFile("appsettings.json", optional: false)
+            .Build();
+
+        var credentialPath = config["Firebase:CredentialPath"];
+        if (string.IsNullOrEmpty(credentialPath) || !File.Exists(credentialPath))
+        {
+            Console.WriteLine("Firebase credentials not found, skipping test");
+            return;
+        }
+
+        // Initialize Firebase if not already
+        if (FirebaseAdmin.FirebaseApp.DefaultInstance == null)
+        {
+            FirebaseAdmin.FirebaseApp.Create(new FirebaseAdmin.AppOptions()
+            {
+                Credential = Google.Apis.Auth.OAuth2.GoogleCredential.FromFile(credentialPath)
+            });
+        }
+
+        string deviceToken = "cj6klVvUSEOj0BX1YJ8zTy:APA91bEri6S_THVXlMRL45LIIO_giswkw419xYp3Bip_5co0HvOxYVbVVbl1M_IbzSv3iVmfq6AbHetxrhNJc6cU4Oayiy9l61nOHUFeEI2dALShSynRWB0";
+
+        var message = new FirebaseAdmin.Messaging.Message()
+        {
+            Token = deviceToken,
+            Notification = new FirebaseAdmin.Messaging.Notification()
+            {
+                Title = "Direct Firebase Test",
+                Body = $"Sent at {DateTime.Now:HH:mm:ss}"
+            },
+            Android = new FirebaseAdmin.Messaging.AndroidConfig()
+            {
+                Priority = FirebaseAdmin.Messaging.Priority.High,
+                Notification = new FirebaseAdmin.Messaging.AndroidNotification()
+                {
+                    ChannelId = "default_channel",
+                    ClickAction = "FLUTTER_NOTIFICATION_CLICK"
+                }
+            }
+        };
+
+        try
+        {
+            // SendAsync returns the MESSAGE ID if successful
+            string messageId = await FirebaseAdmin.Messaging.FirebaseMessaging.DefaultInstance.SendAsync(message);
+            
+            Console.WriteLine($"===========================================");
+            Console.WriteLine($"SUCCESS! Firebase accepted the notification");
+            Console.WriteLine($"Message ID: {messageId}");
+            Console.WriteLine($"===========================================");
+            
+            Assert.NotNull(messageId);
+            Assert.StartsWith("projects/", messageId); // Firebase returns "projects/{project_id}/messages/{message_id}"
+        }
+        catch (FirebaseAdmin.Messaging.FirebaseMessagingException ex)
+        {
+            Console.WriteLine($"Firebase Error Code: {ex.MessagingErrorCode}");
+            Console.WriteLine($"Firebase Error: {ex.Message}");
+            Assert.Fail($"Firebase rejected: {ex.MessagingErrorCode} - {ex.Message}");
         }
     }
 }

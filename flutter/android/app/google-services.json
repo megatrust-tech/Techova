@@ -1,0 +1,48 @@
+{
+  "project_info": {
+    "project_number": "579711164508",
+    "project_id": "taskedin-leave",
+    "storage_bucket": "taskedin-leave.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:579711164508:android:8d8f9f6cc6a69b4d778699",
+        "android_client_info": {
+          "package_name": "com.example.tasked_in"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCljZqxwVdroQWrVgh2m8yhILrsaoS0u9I"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:579711164508:android:a686ad8db3c256bb778699",
+        "android_client_info": {
+          "package_name": "com.taskedin.taskedin_flutter"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCljZqxwVdroQWrVgh2m8yhILrsaoS0u9I"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

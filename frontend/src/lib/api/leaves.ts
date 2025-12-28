@@ -412,6 +412,7 @@ export interface LeaveSettingsDto {
   defaultBalance: number;
   autoApproveEnabled: boolean;
   autoApproveThresholdDays: number;
+  bypassConflictCheck: boolean;
 }
 
 export async function fetchLeaveSettings(): Promise<LeaveSettingsDto[]> {
@@ -572,3 +573,278 @@ export async function cancelLeaveRequest(
     throw error;
   }
 }
+
+// --- Admin: User Balance Management ---
+
+export interface UserWithoutBalanceDto {
+  userId: string;
+  email: string;
+  fullName: string;
+  createdAt: string;
+}
+
+export interface PaginatedUsersWithoutBalanceDto {
+  items: UserWithoutBalanceDto[];
+  totalCount: number;
+  page: number;
+  pageSize: number;
+  totalPages: number;
+  hasNextPage: boolean;
+  hasPreviousPage: boolean;
+}
+
+export interface InitializeBalancesRequestDto {
+  userIds: string[];
+  year: number;
+}
+
+export interface InitializeBalancesResponseDto {
+  initializedCount: number;
+  message: string;
+}
+
+export async function fetchUsersWithoutBalances(
+  page: number = 1,
+  pageSize: number = 20,
+  year: number = new Date().getFullYear()
+): Promise<PaginatedUsersWithoutBalanceDto> {
+  try {
+    const accessToken = await getAccessToken();
+    if (!accessToken) {
+      throw new Error("Not authenticated");
+    }
+
+    const params = new URLSearchParams({
+      page: page.toString(),
+      pageSize: pageSize.toString(),
+      year: year.toString(),
+    });
+
+    const response = await fetch(
+      `${API_BASE_URL}/leaves/users-without-balances?${params}`,
+      {
+        method: "GET",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${accessToken}`,
+        },
+      }
+    );
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      if (response.status === 401) {
+        throw new Error("Unauthorized. Please log in again.");
+      }
+      if (response.status === 403) {
+        throw new Error("Access denied. Admin permissions required.");
+      }
+      throw new Error(data.message || "Failed to fetch users without balances");
+    }
+
+    return data;
+  } catch (error) {
+    throw error;
+  }
+}
+
+export async function initializeBalances(
+  request: InitializeBalancesRequestDto
+): Promise<InitializeBalancesResponseDto> {
+  try {
+    const accessToken = await getAccessToken();
+    if (!accessToken) {
+      throw new Error("Not authenticated");
+    }
+
+    const response = await fetch(`${API_BASE_URL}/leaves/initialize-balances`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${accessToken}`,
+      },
+      body: JSON.stringify(request),
+    });
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      if (response.status === 401) {
+        throw new Error("Unauthorized. Please log in again.");
+      }
+      if (response.status === 403) {
+        throw new Error("Access denied. Admin permissions required.");
+      }
+      if (response.status === 400) {
+        throw new Error(data.message || "Invalid request.");
+      }
+      throw new Error(data.message || "Failed to initialize balances");
+    }
+
+    return data;
+  } catch (error) {
+    throw error;
+  }
+}
+
+// --- Admin: User Balance Management (View/Update) ---
+
+export interface LeaveBalanceItemDto {
+  leaveTypeId: number;
+  leaveTypeName: string;
+  totalDays: number;
+  usedDays: number;
+  remainingDays: number;
+}
+
+export interface UserBalanceDto {
+  userId: number;
+  firstName: string;
+  lastName: string;
+  email: string;
+  balances: LeaveBalanceItemDto[];
+}
+
+export interface PaginatedUserBalancesDto {
+  items: UserBalanceDto[];
+  totalCount: number;
+  pageNumber: number;
+  pageSize: number;
+  totalPages: number;
+}
+
+export interface BalanceUpdateItem {
+  leaveTypeId: number;
+  newTotalDays: number;
+}
+
+export interface UpdateBalancesRequest {
+  userIds: number[];
+  year: number;
+  updates: BalanceUpdateItem[];
+}
+
+export interface UpdateBalancesResponse {
+  message: string;
+  usersUpdated: number;
+  balanceRecordsUpdated: number;
+}
+
+export async function fetchUserBalances(
+  pageNumber: number = 1,
+  pageSize: number = 50,
+  year: number = new Date().getFullYear()
+): Promise<PaginatedUserBalancesDto> {
+  try {
+    const accessToken = await getAccessToken();
+    if (!accessToken) {
+      throw new Error("Not authenticated");
+    }
+
+    const params = new URLSearchParams({
+      pageNumber: pageNumber.toString(),
+      pageSize: pageSize.toString(),
+      year: year.toString(),
+    });
+
+    const response = await fetch(
+      `${API_BASE_URL}/leaves/user-balances?${params}`,
+      {
+        method: "GET",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${accessToken}`,
+        },
+      }
+    );
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      if (response.status === 401) {
+        throw new Error("Unauthorized. Please log in again.");
+      }
+      if (response.status === 403) {
+        throw new Error("Access denied. Admin permissions required.");
+      }
+      throw new Error(data.message || "Failed to fetch user balances");
+    }
+
+    return data;
+  } catch (error) {
+    throw error;
+  }
+}
+
+export async function updateUserBalances(
+  request: UpdateBalancesRequest
+): Promise<UpdateBalancesResponse> {
+  try {
+    const accessToken = await getAccessToken();
+    if (!accessToken) {
+      throw new Error("Not authenticated");
+    }
+
+    const response = await fetch(`${API_BASE_URL}/leaves/update-balances`, {
+      method: "PUT",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${accessToken}`,
+      },
+      body: JSON.stringify(request),
+    });
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      if (response.status === 401) {
+        throw new Error("Unauthorized. Please log in again.");
+      }
+      if (response.status === 403) {
+        throw new Error("Access denied. Admin permissions required.");
+      }
+      if (response.status === 400) {
+        throw new Error(data.message || "Invalid request.");
+      }
+      throw new Error(data.message || "Failed to update balances");
+    }
+
+    return data;
+  } catch (error) {
+    throw error;
+  }
+}
+
+// --- Download Leave Audit Logs ---
+
+export async function downloadLeaveAuditLogs(): Promise<Blob> {
+  const accessToken = await getAccessToken();
+  if (!accessToken) {
+    throw new Error("Not authenticated");
+  }
+
+  const response = await fetch(`${API_BASE_URL}/leaves/audit-logs/download`, {
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+    },
+  });
+
+  if (!response.ok) {
+    if (response.status === 401 || response.status === 403) {
+      throw new Error("Unauthorized");
+    }
+    if (response.status === 204 || response.headers.get("content-length") === "0") {
+      throw new Error("No audit logs available");
+    }
+    throw new Error("Failed to download audit logs");
+  }
+
+  const blob = await response.blob();
+  if (blob.size === 0) {
+    throw new Error("No audit logs available");
+  }
+
+  return blob;
+}
+

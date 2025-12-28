@@ -56,5 +56,16 @@ namespace taskedin_be.src.Modules.Users.Controllers
             await _userService.RemoveDeviceAsync(userId, WebUtility.UrlDecode(token));
             return Ok(new { message = "Device removed" });
         }
+
+        [HttpGet("search")]
+        [Authorize(Roles = "Admin")]
+        public async Task<IActionResult> SearchUsers([FromQuery] string query)
+        {
+            if (string.IsNullOrWhiteSpace(query))
+                return BadRequest(new { message = "Search query is required" });
+
+            var users = await _userService.SearchUsersAsync(query);
+            return Ok(users);
+        }
     }
 }

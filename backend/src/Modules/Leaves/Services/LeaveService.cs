@@ -26,6 +26,13 @@ public interface ILeaveService
     Task<IEnumerable<LeaveBalanceSummaryDto>> GetBalancesAsync(int userId);
     Task<IEnumerable<LeaveSettingsDto>> GetLeaveSettingsAsync();
     Task UpdateLeaveSettingsAsync(List<LeaveSettingsDto> settings);
+    Task<PagedResult<UserWithoutBalanceDto>> GetUsersWithoutBalancesAsync(PaginationDto pagination, int? year = null);
+    Task<InitializeBalancesResponseDto> InitializeBalancesAsync(InitializeBalancesRequestDto request);
+    Task<PagedResult<UserBalanceDto>> GetAllUsersWithBalancesAsync(PaginationDto pagination, int? year = null);
+    Task<UpdateBalancesResponseDto> UpdateBalancesAsync(UpdateBalancesRequestDto request);
+    Task<PendingApprovalCountDto> GetPendingApprovalCountAsync(int userId);
+    Task<CalendarDataResponseDto> GetCalendarDataAsync(int userId, DateTime? startDate, DateTime? endDate);
+    Task<IEnumerable<AuditLogDownloadDto>> GetAuditLogsForDownloadAsync(int userId);
 }
 
 public class LeaveService : ILeaveService
@@ -121,12 +128,33 @@ public class LeaveService : ILeaveService
         var user = await _context.Users.FindAsync(userId)
              ?? throw new UnauthorizedAccessException("User not found.");
 
+        // 1. Self-conflict check: User cannot have overlapping leave requests (any active status)
+        var selfConflict = await _context.LeaveRequests
+            .Where(l =>
+                l.EmployeeId == userId &&
+                l.Status != LeaveStatus.Cancelled &&
+                l.Status != LeaveStatus.Rejected &&
+                (l.StartDate <= endDate && l.EndDate >= startDate)
+            )
+            .FirstOrDefaultAsync();
+
+        if (selfConflict != null)
+        {
+            return new ConflictCheckResponse
+            {
+                HasConflict = true,
+                ConflictingEmployeeName = "You",
+                Message = $"You already have a leave request ({selfConflict.Status}) for {selfConflict.StartDate:MMM dd} - {selfConflict.EndDate:MMM dd}."
+            };
+        }
+
+        // 2. Team conflict check: Only block if another teammate has an APPROVED leave
         var conflictingRequest = await _context.LeaveRequests
             .Include(l => l.Employee)
             .Where(l =>
                 l.EmployeeId != userId &&
-                l.Employee!.DepartmentId == user.DepartmentId &&
-                (l.Status == LeaveStatus.PendingManager || l.Status == LeaveStatus.PendingHR || l.Status == LeaveStatus.Approved) &&
+                l.ManagerId == user.ManagerId &&
+                l.Status == LeaveStatus.Approved &&
                 (l.StartDate <= endDate && l.EndDate >= startDate)
             )
             .FirstOrDefaultAsync();
@@ -138,7 +166,7 @@ public class LeaveService : ILeaveService
             {
                 HasConflict = true,
                 ConflictingEmployeeName = empName,
-                Message = $"Conflict detected: {empName} has leave during this period."
+                Message = $"Conflict detected: {empName} already has approved leave during this period."
             };
         }
 
@@ -155,14 +183,27 @@ public class LeaveService : ILeaveService
             .FirstOrDefaultAsync(u => u.Id == userId)
              ?? throw new UnauthorizedAccessException("User not found.");
 
-        var conflict = await CheckConflictAsync(userId, dto.StartDate, dto.EndDate);
-        if (conflict.HasConflict)
-        {
-            throw new InvalidOperationException($"Cannot submit request: {conflict.Message}");
-        }
-
         var totalDays = (dto.EndDate.Date - dto.StartDate.Date).Days + 1;
         var fiscalYear = dto.StartDate.Year;
+
+        // Fetch leave config FIRST to determine if we can bypass conflict check
+        var leaveConfig = await _context.Set<LeaveTypeConfig>()
+            .FirstOrDefaultAsync(c => c.LeaveTypeId == (int)dto.Type);
+
+        bool willAutoApprove = leaveConfig?.AutoApproveEnabled == true 
+            && totalDays <= leaveConfig.AutoApproveThresholdDays;
+
+        // Check conflict ONLY if not bypassing (bypass requires both auto-approve AND bypass flag)
+        bool shouldBypassConflict = willAutoApprove && (leaveConfig?.BypassConflictCheck ?? false);
+
+        if (!shouldBypassConflict)
+        {
+            var conflict = await CheckConflictAsync(userId, dto.StartDate, dto.EndDate);
+            if (conflict.HasConflict)
+            {
+                throw new InvalidOperationException($"Cannot submit request: {conflict.Message}");
+            }
+        }
 
         var balance = await _context.LeaveBalances
             .FirstOrDefaultAsync(b => b.EmployeeId == userId && b.Year == fiscalYear && b.Type == dto.Type);
@@ -184,22 +225,16 @@ public class LeaveService : ILeaveService
             throw new InvalidOperationException($"Insufficient leave balance for {fiscalYear}. Remaining: {balance.RemainingDays}, Pending: {pendingDays}, Requested: {totalDays}.");
         }
 
-        var leaveConfig = await _context.Set<LeaveTypeConfig>()
-            .FirstOrDefaultAsync(c => c.LeaveTypeId == (int)dto.Type);
-
-        bool isAutoApproved = false;
-        if (leaveConfig != null && leaveConfig.AutoApproveEnabled)
-        {
-            if (totalDays <= leaveConfig.AutoApproveThresholdDays)
-            {
-                isAutoApproved = true;
-            }
-        }
+        bool isAutoApproved = willAutoApprove;
 
         bool requesterIsManager = user.Role.Name.Equals("Manager", StringComparison.OrdinalIgnoreCase);
+    
+        // Managers with a ManagerId go through normal approval flow (their manager approves)
+        // Only Department Heads (managers with no manager) go directly to HR
+        bool isDepartmentHead = requesterIsManager && !user.ManagerId.HasValue;
 
         var status = isAutoApproved ? LeaveStatus.Approved :
-                     requesterIsManager ? LeaveStatus.PendingHR : LeaveStatus.PendingManager;
+                     isDepartmentHead ? LeaveStatus.PendingHR : LeaveStatus.PendingManager;
 
         int managerId;
 
@@ -274,9 +309,11 @@ public class LeaveService : ILeaveService
         }
         else if (status == LeaveStatus.PendingHR)
         {
+            // Only notify HR users in the same department as the manager
+            var managerDeptId = user.DepartmentId;
             var hrUsers = await _context.Users
                 .Include(u => u.Role)
-                .Where(u => u.Role.Name.ToLower() == "hr")
+                .Where(u => u.Role.Name.ToLower() == "hr" && u.DepartmentId == managerDeptId)
                 .ToListAsync();
 
             var msg = NotificationTemplates.NewRequest(empName, dto.Type.ToString(), dto.StartDate, dto.EndDate, totalDays);
@@ -350,11 +387,35 @@ public class LeaveService : ILeaveService
         var request = await _context.LeaveRequests.Include(r => r.Employee).FirstOrDefaultAsync(r => r.Id == requestId)
             ?? throw new KeyNotFoundException("Leave request not found.");
 
+        // Prevent self-approval
+        if (request.EmployeeId == managerId)
+            throw new InvalidOperationException("You cannot approve your own leave request.");
+
         if (request.ManagerId != managerId)
             throw new UnauthorizedAccessException("You are not the manager of this request.");
 
         if (request.Status != LeaveStatus.PendingManager)
             throw new InvalidOperationException("Request is not pending manager approval.");
+
+        // If approving, check for conflicts with other requests already PendingHR or Approved
+        if (dto.IsApproved)
+        {
+            var conflictingRequest = await _context.LeaveRequests
+                .Include(l => l.Employee)
+                .Where(l =>
+                    l.Id != requestId &&
+                    l.ManagerId == managerId &&
+                    (l.Status == LeaveStatus.PendingHR || l.Status == LeaveStatus.Approved) &&
+                    (l.StartDate <= request.EndDate && l.EndDate >= request.StartDate)
+                )
+                .FirstOrDefaultAsync();
+
+            if (conflictingRequest != null)
+            {
+                var conflictName = $"{conflictingRequest.Employee?.FirstName} {conflictingRequest.Employee?.LastName}";
+                throw new InvalidOperationException($"Cannot approve: {conflictName} already has a leave request for this period that is pending HR approval or approved.");
+            }
+        }
 
         var action = dto.IsApproved ? LeaveAction.ManagerApproved : LeaveAction.ManagerRejected;
         var newStatus = dto.IsApproved ? LeaveStatus.PendingHR : LeaveStatus.Rejected;
@@ -369,15 +430,18 @@ public class LeaveService : ILeaveService
         // CHANGED: Use Queue
         await _notificationQueue.QueueNotificationAsync(request.EmployeeId, empMsg.Subject, empMsg.Text);
 
-        // 2. Notify HR if Manager Approved
+        // 2. Notify HR if Manager Approved (only HR in same department)
         if (dto.IsApproved)
         {
+            var manager = await _context.Users.FindAsync(managerId);
+            var managerDeptId = manager?.DepartmentId;
+
+            // Only notify HR users in the same department as the manager
             var hrUsers = await _context.Users
                .Include(u => u.Role)
-               .Where(u => u.Role.Name.ToLower() == "hr")
+               .Where(u => u.Role.Name.ToLower() == "hr" && u.DepartmentId == managerDeptId)
                .ToListAsync();
 
-            var manager = await _context.Users.FindAsync(managerId);
             string mgrName = manager != null ? $"{manager.FirstName} {manager.LastName}" : "Manager";
             string empName = request.Employee != null ? $"{request.Employee.FirstName} {request.Employee.LastName}" : "Employee";
 
@@ -396,6 +460,10 @@ public class LeaveService : ILeaveService
         var request = await _context.LeaveRequests.FindAsync(requestId)
             ?? throw new KeyNotFoundException("Leave request not found.");
 
+        // Prevent self-approval
+        if (request.EmployeeId == hrId)
+            throw new InvalidOperationException("You cannot approve your own leave request.");
+
         if (request.Status != LeaveStatus.PendingHR)
             throw new InvalidOperationException("Request is not pending HR approval.");
 
@@ -404,6 +472,23 @@ public class LeaveService : ILeaveService
 
         if (dto.IsApproved)
         {
+            // Check for conflicts - if another request under same manager is already Approved
+            var conflictingRequest = await _context.LeaveRequests
+                .Include(l => l.Employee)
+                .Where(l =>
+                    l.Id != requestId &&
+                    l.ManagerId == request.ManagerId &&
+                    l.Status == LeaveStatus.Approved &&
+                    (l.StartDate <= request.EndDate && l.EndDate >= request.StartDate)
+                )
+                .FirstOrDefaultAsync();
+
+            if (conflictingRequest != null)
+            {
+                var conflictName = $"{conflictingRequest.Employee?.FirstName} {conflictingRequest.Employee?.LastName}";
+                throw new InvalidOperationException($"Cannot approve: {conflictName} already has an approved leave for this period.");
+            }
+
             var fiscalYear = request.StartDate.Year;
 
             var balance = await _context.LeaveBalances
@@ -435,6 +520,7 @@ public class LeaveService : ILeaveService
         var query = _context.LeaveRequests
             .AsNoTracking()
             .Include(x => x.Employee)
+            .Include(x => x.Manager)
             .AsQueryable();
 
         LeaveStatus? statusEnum = null;
@@ -445,7 +531,27 @@ public class LeaveService : ILeaveService
 
         if (!statusEnum.HasValue || statusEnum.Value != LeaveStatus.PendingHR)
         {
+            // Manager view: exclude own requests
             query = query.Where(x => x.ManagerId == managerId && x.EmployeeId != managerId);
+        }
+        else if (statusEnum.Value == LeaveStatus.PendingHR)
+        {
+            // HR view: Get HR user's department
+            var hrUser = await _context.Users.FindAsync(managerId);
+            
+            // Filter by department (using Manager's DepartmentId) and exclude own requests
+            if (hrUser?.DepartmentId.HasValue == true)
+            {
+                query = query.Where(x => 
+                    x.EmployeeId != managerId && 
+                    x.Manager != null && 
+                    x.Manager.DepartmentId == hrUser.DepartmentId);
+            }
+            else
+            {
+                // HR without department sees nothing (or throw error)
+                query = query.Where(x => false);
+            }
         }
 
         if (statusEnum.HasValue)
@@ -594,7 +700,8 @@ public class LeaveService : ILeaveService
                     Name = type.ToString(),
                     DefaultBalance = existing.DefaultBalance,
                     AutoApproveEnabled = existing.AutoApproveEnabled,
-                    AutoApproveThresholdDays = existing.AutoApproveThresholdDays
+                    AutoApproveThresholdDays = existing.AutoApproveThresholdDays,
+                    BypassConflictCheck = existing.BypassConflictCheck
                 });
             }
             else
@@ -605,7 +712,8 @@ public class LeaveService : ILeaveService
                     Name = type.ToString(),
                     DefaultBalance = 21,
                     AutoApproveEnabled = false,
-                    AutoApproveThresholdDays = 0
+                    AutoApproveThresholdDays = 0,
+                    BypassConflictCheck = false
                 });
             }
         }
@@ -632,9 +740,516 @@ public class LeaveService : ILeaveService
             config.DefaultBalance = dto.DefaultBalance;
             config.AutoApproveEnabled = dto.AutoApproveEnabled;
             config.AutoApproveThresholdDays = dto.AutoApproveThresholdDays;
+            config.BypassConflictCheck = dto.BypassConflictCheck;
         }
 
         await _context.SaveChangesAsync();
+    }
+
+    public async Task<PagedResult<UserWithoutBalanceDto>> GetUsersWithoutBalancesAsync(PaginationDto pagination, int? year = null)
+    {
+        // Use specified year or default to current year
+        var targetYear = year ?? DateTime.UtcNow.Year;
+        
+        // Use subquery for efficiency with large datasets - avoids loading all IDs into memory
+        var usersWithBalancesQuery = _context.LeaveBalances
+            .Where(b => b.Year == targetYear)
+            .Select(b => b.EmployeeId)
+            .Distinct();
+
+        // Query users who don't have balance records using NOT IN subquery
+        var query = _context.Users
+            .AsNoTracking()
+            .Where(u => !usersWithBalancesQuery.Contains(u.Id));
+
+        // Get total count for pagination
+        var totalCount = await query.CountAsync();
+
+        // Get paginated results
+        var items = await query
+            .OrderBy(u => u.Id)
+            .Skip((pagination.PageNumber - 1) * pagination.PageSize)
+            .Take(pagination.PageSize)
+            .Select(u => new UserWithoutBalanceDto
+            {
+                Id = u.Id,
+                FirstName = u.FirstName,
+                LastName = u.LastName,
+                Email = u.Email
+            })
+            .ToListAsync();
+
+        return new PagedResult<UserWithoutBalanceDto>
+        {
+            Items = items,
+            TotalCount = totalCount,
+            PageNumber = pagination.PageNumber,
+            PageSize = pagination.PageSize
+        };
+    }
+
+    public async Task<InitializeBalancesResponseDto> InitializeBalancesAsync(InitializeBalancesRequestDto request)
+    {
+        if (request.UserIds == null || !request.UserIds.Any())
+        {
+            return new InitializeBalancesResponseDto
+            {
+                Message = "No users specified. Please select users from the list to initialize.",
+                Count = 0
+            };
+        }
+
+        // Limit batch size to prevent memory issues (max 1000 users per request)
+        const int maxBatchSize = 1000;
+        if (request.UserIds.Count > maxBatchSize)
+        {
+            return new InitializeBalancesResponseDto
+            {
+                Message = $"Too many users selected. Maximum {maxBatchSize} users per request. Please use pagination.",
+                Count = 0
+            };
+        }
+
+        // Use specified year or default to current year
+        var targetYear = request.Year ?? DateTime.UtcNow.Year;
+        var userIds = request.UserIds;
+        
+        // Get leave type configs for default balances
+        var configs = await _context.Set<LeaveTypeConfig>().ToListAsync();
+        var allLeaveTypes = Enum.GetValues(typeof(LeaveType)).Cast<LeaveType>().ToList();
+
+        // Bulk query: Get all existing balance types for the specified users in one query
+        var existingBalances = await _context.LeaveBalances
+            .Where(b => userIds.Contains(b.EmployeeId) && b.Year == targetYear)
+            .Select(b => new { b.EmployeeId, b.Type })
+            .ToListAsync();
+
+        var existingByUser = existingBalances
+            .GroupBy(b => b.EmployeeId)
+            .ToDictionary(g => g.Key, g => g.Select(x => x.Type).ToHashSet());
+
+        var balancesToAdd = new List<LeaveBalance>();
+        var now = DateTime.UtcNow;
+
+        foreach (var userId in userIds)
+        {
+            var userExistingTypes = existingByUser.GetValueOrDefault(userId) ?? new HashSet<LeaveType>();
+
+            foreach (var leaveType in allLeaveTypes)
+            {
+                if (!userExistingTypes.Contains(leaveType))
+                {
+                    var config = configs.FirstOrDefault(c => c.LeaveTypeId == (int)leaveType);
+                    var defaultDays = config?.DefaultBalance ?? (leaveType == LeaveType.Annual ? 21 : 7);
+
+                    balancesToAdd.Add(new LeaveBalance
+                    {
+                        EmployeeId = userId,
+                        Type = leaveType,
+                        Year = targetYear,
+                        TotalDays = defaultDays,
+                        UsedDays = 0,
+                        CreatedAt = now,
+                        UpdatedAt = now
+                    });
+                }
+            }
+        }
+
+        if (balancesToAdd.Any())
+        {
+            _context.LeaveBalances.AddRange(balancesToAdd);
+            await _context.SaveChangesAsync();
+        }
+
+        return new InitializeBalancesResponseDto
+        {
+            Message = $"Leave balances for {targetYear} initialized for {userIds.Count} users ({balancesToAdd.Count} balance records created)",
+            Count = userIds.Count
+        };
+    }
+
+    public async Task<PagedResult<UserBalanceDto>> GetAllUsersWithBalancesAsync(PaginationDto pagination, int? year = null)
+    {
+        // Use specified year or default to current year
+        var targetYear = year ?? DateTime.UtcNow.Year;
+        var allLeaveTypes = Enum.GetValues(typeof(LeaveType)).Cast<LeaveType>().ToList();
+
+        // Get total count of users
+        var totalCount = await _context.Users.CountAsync();
+
+        // Get paginated users
+        var users = await _context.Users
+            .AsNoTracking()
+            .OrderBy(u => u.Id)
+            .Skip((pagination.PageNumber - 1) * pagination.PageSize)
+            .Take(pagination.PageSize)
+            .Select(u => new { u.Id, u.FirstName, u.LastName, u.Email })
+            .ToListAsync();
+
+        var userIds = users.Select(u => u.Id).ToList();
+
+        // Bulk query: Get all balances for these users in one query
+        var balances = await _context.LeaveBalances
+            .AsNoTracking()
+            .Where(b => userIds.Contains(b.EmployeeId) && b.Year == targetYear)
+            .ToListAsync();
+
+        var balancesByUser = balances
+            .GroupBy(b => b.EmployeeId)
+            .ToDictionary(g => g.Key, g => g.ToList());
+
+        // Build result with all leave types for each user
+        var items = users.Select(u =>
+        {
+            var userBalances = balancesByUser.GetValueOrDefault(u.Id) ?? new List<LeaveBalance>();
+            
+            return new UserBalanceDto
+            {
+                UserId = u.Id,
+                FirstName = u.FirstName,
+                LastName = u.LastName,
+                Email = u.Email,
+                Balances = allLeaveTypes.Select(lt =>
+                {
+                    var balance = userBalances.FirstOrDefault(b => b.Type == lt);
+                    return new LeaveBalanceItemDto
+                    {
+                        LeaveTypeId = (int)lt,
+                        LeaveTypeName = lt.ToString(),
+                        TotalDays = balance?.TotalDays ?? 0,
+                        UsedDays = balance?.UsedDays ?? 0,
+                        RemainingDays = balance?.RemainingDays ?? 0
+                    };
+                }).ToList()
+            };
+        }).ToList();
+
+        return new PagedResult<UserBalanceDto>
+        {
+            Items = items,
+            TotalCount = totalCount,
+            PageNumber = pagination.PageNumber,
+            PageSize = pagination.PageSize
+        };
+    }
+
+    public async Task<UpdateBalancesResponseDto> UpdateBalancesAsync(UpdateBalancesRequestDto request)
+    {
+        if (request.UserIds == null || !request.UserIds.Any())
+        {
+            return new UpdateBalancesResponseDto
+            {
+                Message = "No users specified",
+                UsersUpdated = 0,
+                BalanceRecordsUpdated = 0
+            };
+        }
+
+        if (request.Updates == null || !request.Updates.Any())
+        {
+            return new UpdateBalancesResponseDto
+            {
+                Message = "No balance updates specified",
+                UsersUpdated = 0,
+                BalanceRecordsUpdated = 0
+            };
+        }
+
+        // Limit batch size to prevent memory issues
+        const int maxBatchSize = 1000;
+        if (request.UserIds.Count > maxBatchSize)
+        {
+            return new UpdateBalancesResponseDto
+            {
+                Message = $"Too many users selected. Maximum {maxBatchSize} users per request.",
+                UsersUpdated = 0,
+                BalanceRecordsUpdated = 0
+            };
+        }
+
+        // Use specified year or default to current year
+        var targetYear = request.Year ?? DateTime.UtcNow.Year;
+        var userIds = request.UserIds;
+        var leaveTypeIds = request.Updates.Select(u => u.LeaveTypeId).ToList();
+
+        // Get existing balances for the specified users and leave types
+        var existingBalances = await _context.LeaveBalances
+            .Where(b => userIds.Contains(b.EmployeeId) 
+                     && b.Year == targetYear 
+                     && leaveTypeIds.Contains((int)b.Type))
+            .ToListAsync();
+
+        var now = DateTime.UtcNow;
+        int recordsUpdated = 0;
+        int recordsCreated = 0;
+        var balancesToAdd = new List<LeaveBalance>();
+
+        // Group existing balances by user for quick lookup
+        var balancesByUser = existingBalances
+            .GroupBy(b => b.EmployeeId)
+            .ToDictionary(g => g.Key, g => g.ToDictionary(b => (int)b.Type));
+
+        foreach (var userId in userIds)
+        {
+            var userBalances = balancesByUser.GetValueOrDefault(userId) ?? new Dictionary<int, LeaveBalance>();
+
+            foreach (var update in request.Updates)
+            {
+                if (userBalances.TryGetValue(update.LeaveTypeId, out var existingBalance))
+                {
+                    // Update existing balance - only update TotalDays, preserve UsedDays
+                    existingBalance.TotalDays = update.NewTotalDays;
+                    existingBalance.UpdatedAt = now;
+                    recordsUpdated++;
+                }
+                else
+                {
+                    // Create new balance record if it doesn't exist
+                    balancesToAdd.Add(new LeaveBalance
+                    {
+                        EmployeeId = userId,
+                        Type = (LeaveType)update.LeaveTypeId,
+                        Year = targetYear,
+                        TotalDays = update.NewTotalDays,
+                        UsedDays = 0,
+                        CreatedAt = now,
+                        UpdatedAt = now
+                    });
+                    recordsCreated++;
+                }
+            }
+        }
+
+        if (balancesToAdd.Any())
+        {
+            _context.LeaveBalances.AddRange(balancesToAdd);
+        }
+
+        await _context.SaveChangesAsync();
+
+        return new UpdateBalancesResponseDto
+        {
+            Message = $"Updated {recordsUpdated} balance records for {targetYear}, created {recordsCreated} new records for {userIds.Count} users",
+            UsersUpdated = userIds.Count,
+            BalanceRecordsUpdated = recordsUpdated + recordsCreated
+        };
+    }
+
+    public async Task<PendingApprovalCountDto> GetPendingApprovalCountAsync(int userId)
+    {
+        var user = await _context.Users
+            .Include(u => u.Role)
+            .FirstOrDefaultAsync(u => u.Id == userId)
+            ?? throw new UnauthorizedAccessException("User not found.");
+
+        int pendingManager = 0;
+        int pendingHR = 0;
+
+        var roleName = user.Role.Name.ToLower();
+
+        if (roleName == "manager")
+        {
+            // Managers see requests where they are the assigned manager
+            pendingManager = await _context.LeaveRequests
+                .CountAsync(r => r.ManagerId == userId && r.Status == LeaveStatus.PendingManager);
+        }
+
+        if (roleName == "hr")
+        {
+            // HR sees only requests from their department (via Manager's DepartmentId)
+            if (user.DepartmentId.HasValue)
+            {
+                pendingHR = await _context.LeaveRequests
+                    .Include(r => r.Manager)
+                    .CountAsync(r => r.Status == LeaveStatus.PendingHR && 
+                                     r.Manager != null && 
+                                     r.Manager.DepartmentId == user.DepartmentId);
+            }
+        }
+        else if (roleName == "admin")
+        {
+            // Admin sees all requests pending HR approval
+            pendingHR = await _context.LeaveRequests
+                .CountAsync(r => r.Status == LeaveStatus.PendingHR);
+        }
+
+        return new PendingApprovalCountDto
+        {
+            PendingManagerApproval = pendingManager,
+            PendingHRApproval = pendingHR,
+            TotalPending = pendingManager + pendingHR
+        };
+    }
+
+    public async Task<CalendarDataResponseDto> GetCalendarDataAsync(int userId, DateTime? startDate, DateTime? endDate)
+    {
+        var user = await _context.Users
+            .Include(u => u.Role)
+            .FirstOrDefaultAsync(u => u.Id == userId)
+            ?? throw new UnauthorizedAccessException("User not found.");
+
+        var roleName = user.Role.Name.ToLower();
+
+        // Base query for approved requests
+        var query = _context.LeaveRequests
+            .AsNoTracking()
+            .Include(r => r.Employee)
+            .Include(r => r.Manager)
+            .Where(r => r.Status == LeaveStatus.Approved);
+
+        // Apply date filter if provided
+        if (startDate.HasValue)
+            query = query.Where(r => r.EndDate >= startDate.Value);
+        if (endDate.HasValue)
+            query = query.Where(r => r.StartDate <= endDate.Value);
+
+        if (roleName == "hr" || roleName == "admin")
+        {
+            // HR/Admin: Get all approved requests grouped by manager
+            var requests = await query.ToListAsync();
+
+            var grouped = requests
+                .GroupBy(r => r.ManagerId)
+                .Select(g =>
+                {
+                    var manager = g.First().Manager;
+                    return new CalendarGroupedByManagerDto
+                    {
+                        ManagerId = g.Key,
+                        ManagerName = manager != null ? $"{manager.FirstName} {manager.LastName}" : "Unknown",
+                        DepartmentId = manager?.DepartmentId,
+                        Leaves = g.Select(r => new CalendarLeaveDto
+                        {
+                            Id = r.Id,
+                            EmployeeId = r.EmployeeId,
+                            EmployeeName = r.Employee != null ? $"{r.Employee.FirstName} {r.Employee.LastName}" : "Unknown",
+                            LeaveType = r.Type.ToString(),
+                            StartDate = r.StartDate,
+                            EndDate = r.EndDate,
+                            NumberOfDays = r.NumberOfDays
+                        }).ToList()
+                    };
+                })
+                .OrderBy(g => g.ManagerName)
+                .ToList();
+
+            return new CalendarDataResponseDto { GroupedByManager = grouped };
+        }
+        else if (roleName == "manager")
+        {
+            // Manager: Get approved requests of their team
+            var requests = await query
+                .Where(r => r.ManagerId == userId)
+                .OrderBy(r => r.StartDate)
+                .Select(r => new CalendarLeaveDto
+                {
+                    Id = r.Id,
+                    EmployeeId = r.EmployeeId,
+                    EmployeeName = r.Employee != null ? $"{r.Employee.FirstName} {r.Employee.LastName}" : "Unknown",
+                    LeaveType = r.Type.ToString(),
+                    StartDate = r.StartDate,
+                    EndDate = r.EndDate,
+                    NumberOfDays = r.NumberOfDays
+                })
+                .ToListAsync();
+
+            return new CalendarDataResponseDto { Leaves = requests };
+        }
+        else
+        {
+            // Employee: Get only their own approved requests
+            var requests = await query
+                .Where(r => r.EmployeeId == userId)
+                .OrderBy(r => r.StartDate)
+                .Select(r => new CalendarLeaveDto
+                {
+                    Id = r.Id,
+                    EmployeeId = r.EmployeeId,
+                    EmployeeName = r.Employee != null ? $"{r.Employee.FirstName} {r.Employee.LastName}" : "Unknown",
+                    LeaveType = r.Type.ToString(),
+                    StartDate = r.StartDate,
+                    EndDate = r.EndDate,
+                    NumberOfDays = r.NumberOfDays
+                })
+                .ToListAsync();
+
+            return new CalendarDataResponseDto { Leaves = requests };
+        }
+    }
+
+    public async Task<IEnumerable<AuditLogDownloadDto>> GetAuditLogsForDownloadAsync(int userId)
+    {
+        var user = await _context.Users
+            .Include(u => u.Role)
+            .FirstOrDefaultAsync(u => u.Id == userId)
+                ?? throw new UnauthorizedAccessException("User not found.");
+
+        bool isHR = user.Role.Name.Equals("HR", StringComparison.OrdinalIgnoreCase);
+        bool isManager = user.Role.Name.Equals("Manager", StringComparison.OrdinalIgnoreCase);
+
+        if (!isHR && !isManager)
+        {
+            throw new UnauthorizedAccessException("Only Managers and HR can download audit logs.");
+        }
+
+        var query = _context.LeaveAuditLogs
+            .AsNoTracking()
+            .Include(l => l.LeaveRequest)
+                .ThenInclude(r => r!.Employee)
+            .Include(l => l.LeaveRequest)
+                .ThenInclude(r => r!.Manager)
+            .Where(l => l.ActionByUserId == userId);
+
+        if (isManager)
+        {
+            // Manager: Only ManagerApproved or ManagerRejected actions by this manager
+            query = query.Where(l => 
+                l.Action == LeaveAction.ManagerApproved || 
+                l.Action == LeaveAction.ManagerRejected);
+        }
+        else // isHR
+        {
+            // HR: Only HRApproved or HRRejected actions by this HR
+            query = query.Where(l => 
+                l.Action == LeaveAction.HRApproved || 
+                l.Action == LeaveAction.HRRejected);
+        }
+
+        var logs = await query
+            .OrderByDescending(l => l.ActionDate)
+            .ToListAsync();
+
+        var result = logs.Select(l => new AuditLogDownloadDto
+        {
+            DepartmentName = l.LeaveRequest?.Employee?.DepartmentId?.ToString() ?? "N/A",
+            ManagerName = l.LeaveRequest?.Manager != null 
+                ? $"{l.LeaveRequest.Manager.FirstName} {l.LeaveRequest.Manager.LastName}" 
+                : "N/A",
+            RequestId = l.LeaveRequestId,
+            EmployeeName = l.LeaveRequest?.Employee != null 
+                ? $"{l.LeaveRequest.Employee.FirstName} {l.LeaveRequest.Employee.LastName}" 
+                : "Unknown",
+            LeaveType = l.LeaveRequest?.Type.ToString() ?? "Unknown",
+            StartDate = l.LeaveRequest?.StartDate ?? DateTime.MinValue,
+            EndDate = l.LeaveRequest?.EndDate ?? DateTime.MinValue,
+            NumberOfDays = l.LeaveRequest?.NumberOfDays ?? 0,
+            CurrentStatus = l.LeaveRequest?.Status.ToString() ?? "Unknown",
+            ActionTaken = l.Action.ToString(),
+            ActionDate = l.ActionDate,
+            Comment = l.Comment
+        });
+
+        if (isHR)
+        {
+            // Group by Department, then by Manager for HR
+            result = result
+                .OrderBy(r => r.DepartmentName)
+                .ThenBy(r => r.ManagerName)
+                .ThenByDescending(r => r.ActionDate);
+        }
+
+        return result.ToList();
     }
 
     private void UpdateStatusAndLog(LeaveRequest request, int actorId, LeaveAction action, LeaveStatus newStatus, string? comment)

@@ -8,6 +8,7 @@ import {
   fetchPendingApprovals,
   submitHRAction,
   fetchLeaveRequestHistory,
+  downloadLeaveAuditLogs,
   PendingLeaveRequest,
   LeaveAuditLogDto,
 } from "@/lib/api/leaves";
@@ -38,6 +39,7 @@ export default function HRLeavesPage() {
   const [selectedHistoryRequestId, setSelectedHistoryRequestId] = useState<
     number | null
   >(null);
+  const [isDownloading, setIsDownloading] = useState(false);
 
   useEffect(() => {
     document.documentElement.lang = locale;
@@ -197,8 +199,7 @@ export default function HRLeavesPage() {
       });
 
       setSuccess(
-        `Leave request ${
-          action === "approve" ? "approved" : "rejected"
+        `Leave request ${action === "approve" ? "approved" : "rejected"
         } successfully`
       );
 
@@ -237,6 +238,36 @@ export default function HRLeavesPage() {
     }
   };
 
+  // Handle download audit logs
+  const handleDownloadAuditLogs = async () => {
+    setIsDownloading(true);
+    setError(null);
+
+    try {
+      const blob = await downloadLeaveAuditLogs();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      const now = new Date();
+      const timestamp = now.toISOString().replace(/[-:T]/g, "").slice(0, 15);
+      a.download = `leave_audit_logs_${timestamp}.csv`;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+      setSuccess("Audit logs downloaded successfully");
+      setTimeout(() => setSuccess(null), 3000);
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : "Failed to download audit logs. Please try again."
+      );
+    } finally {
+      setIsDownloading(false);
+    }
+  };
+
   return (
     <>
       <Header
@@ -252,12 +283,27 @@ export default function HRLeavesPage() {
         }}
       />
       <main className={`page-shell ${locale === "ar" ? "rtl" : ""}`}>
-        <header className="page-header">
+        <header className="page-header" style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
           <div>
             <p className="eyebrow">HR</p>
             <h1>{t.awaitingAction}</h1>
             <p className="muted">{t.leavesSubtitle}</p>
           </div>
+          <button
+            type="button"
+            className="secondary-btn"
+            onClick={handleDownloadAuditLogs}
+            disabled={isDownloading}
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: "0.5rem",
+              opacity: isDownloading ? 0.7 : 1,
+              cursor: isDownloading ? "not-allowed" : "pointer",
+            }}
+          >
+            {isDownloading ? "Downloading..." : "📥 Download Audit Logs"}
+          </button>
         </header>
 
         <section className="card list-card">

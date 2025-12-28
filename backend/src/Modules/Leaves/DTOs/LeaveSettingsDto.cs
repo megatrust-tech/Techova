@@ -7,4 +7,5 @@ public class LeaveSettingsDto
     public int DefaultBalance { get; set; }
     public bool AutoApproveEnabled { get; set; }
     public int AutoApproveThresholdDays { get; set; }
+    public bool BypassConflictCheck { get; set; }
 }

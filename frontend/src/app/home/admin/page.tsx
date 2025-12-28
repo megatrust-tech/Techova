@@ -101,7 +101,7 @@ export default function AdminHomePage() {
     <>
       <Header
         locale="en"
-        onToggleLocale={() => {}}
+        onToggleLocale={() => { }}
         showLogout={true}
         labels={{
           home: "Home",
@@ -164,6 +164,43 @@ export default function AdminHomePage() {
             ✅ {successMsg}
           </div>
         )}
+
+        {/* Quick Actions */}
+        <section
+          style={{
+            display: "grid",
+            gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))",
+            gap: "1.5rem",
+            marginBottom: "32px",
+          }}
+        >
+          <div
+            className="card"
+            style={{
+              padding: "1.5rem",
+              cursor: "pointer",
+              transition: "transform 0.2s, box-shadow 0.2s",
+            }}
+            onClick={() => router.push("/home/admin/leave-balances")}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.transform = "translateY(-4px)";
+              e.currentTarget.style.boxShadow =
+                "0 10px 25px rgba(0, 0, 0, 0.1)";
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.transform = "translateY(0)";
+              e.currentTarget.style.boxShadow = "";
+            }}
+          >
+            <div style={{ fontSize: "2.5rem", marginBottom: "0.75rem" }}>📊</div>
+            <h3 style={{ marginBottom: "0.5rem", fontSize: "18px" }}>
+              Leave Balance Management
+            </h3>
+            <p style={{ color: "var(--text-muted)", fontSize: "0.875rem", margin: 0 }}>
+              View and update all users&apos; leave balances
+            </p>
+          </div>
+        </section>
 
         {/* Main Content Card */}
         <section className="card">
@@ -243,13 +280,26 @@ export default function AdminHomePage() {
                       Max days for auto-approval
                     </span>
                   </th>
+                  <th style={{ padding: "16px", color: "#64748b" }}>
+                    Bypass Conflict
+                    <span
+                      style={{
+                        display: "block",
+                        fontSize: "12px",
+                        fontWeight: "normal",
+                        marginTop: "4px",
+                      }}
+                    >
+                      Skip conflict check
+                    </span>
+                  </th>
                 </tr>
               </thead>
               <tbody>
                 {settings.length === 0 && (
                   <tr>
                     <td
-                      colSpan={4}
+                      colSpan={5}
                       style={{
                         textAlign: "center",
                         padding: "48px",
@@ -371,6 +421,44 @@ export default function AdminHomePage() {
                           days
                         </span>
                       </div>
+                    </td>
+                    <td style={{ padding: "16px" }}>
+                      <label
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          gap: "12px",
+                          cursor: "pointer",
+                        }}
+                      >
+                        <input
+                          type="checkbox"
+                          style={{
+                            width: "20px",
+                            height: "20px",
+                            accentColor: "#7b58ca",
+                          }}
+                          checked={setting.bypassConflictCheck}
+                          onChange={(e) =>
+                            handleChange(
+                              index,
+                              "bypassConflictCheck",
+                              e.target.checked
+                            )
+                          }
+                        />
+                        <span
+                          style={{
+                            fontSize: "14px",
+                            fontWeight: "500",
+                            color: setting.bypassConflictCheck
+                              ? "#7b58ca"
+                              : "#94a3b8",
+                          }}
+                        >
+                          {setting.bypassConflictCheck ? "Yes" : "No"}
+                        </span>
+                      </label>
                     </td>
                   </tr>
                 ))}

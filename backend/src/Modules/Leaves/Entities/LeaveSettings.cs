@@ -11,5 +11,11 @@ namespace taskedin_be.src.Modules.Leaves.Entities
 
         public bool AutoApproveEnabled { get; set; } = false;
         public int AutoApproveThresholdDays { get; set; } = 0;
+        
+        /// <summary>
+        /// When true, auto-approved requests skip conflict checking.
+        /// Useful for Emergency leave types.
+        /// </summary>
+        public bool BypassConflictCheck { get; set; } = false;
     }
 }
